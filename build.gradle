@@ -1,0 +1,87 @@
+plugins {
+    id("java-library")
+    id("idea")
+    id("net.neoforged.gradle.userdev") version("7.0.145")
+}
+
+version = mod_version
+
+base {
+    archivesName = "flybrainplayer"
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+println("Java: " + System.getProperty("java.version") + " JVM: " + System.getProperty("java.vm.version"))
+
+runs {
+    configureEach {
+        systemProperty("forge.logging.markers", "REGISTRIES")
+        systemProperty("forge.logging.console.level", "debug")
+        modSource(project.sourceSets.main)
+    }
+
+    client {
+        systemProperty("neoforge.enabledGameTestNamespaces", "flybrainplayer")
+        // 自动化验证：./gradlew runClient -Pquickplay=存档名 直接进世界
+        if (project.hasProperty("quickplay")) {
+            programArguments.addAll("--quickPlaySingleplayer",
+                    project.property("quickplay").toString())
+        }
+    }
+
+    server {
+        systemProperty("neoforge.enabledGameTestNamespaces", "flybrainplayer")
+        programArgument("--nogui")
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url = "https://maven.neoforged.net/releases" }
+    maven { url = "https://repo.spongepowered.org/maven" }
+}
+
+// 解决 ASM 版本冲突：runServer/runClient 会把 asm 9.5 塞进 classpath，
+// 而 bootstraplauncher 已把 9.8 放进 module path，报 "already on the JVMs module path"
+configurations.all {
+    resolutionStrategy {
+        force 'org.ow2.asm:asm-analysis:9.8'
+        force 'org.ow2.asm:asm:9.8'
+        force 'org.ow2.asm:asm-commons:9.8'
+        force 'org.ow2.asm:asm-tree:9.8'
+        force 'org.ow2.asm:asm-util:9.8'
+    }
+}
+
+dependencies {
+    implementation("net.neoforged:neoforge:${neo_version}")
+}
+
+tasks.withType(ProcessResources).configureEach {
+    var replaceProperties = [
+            minecraft_version      : minecraft_version,
+            minecraft_version_range: minecraft_version_range,
+            neo_version            : neo_version,
+            neo_version_range      : neo_version_range,
+            loader_version_range   : loader_version_range,
+            mod_version            : mod_version,
+    ]
+    inputs.properties replaceProperties
+
+    filesMatching(["META-INF/neoforge.mods.toml"]) {
+        expand replaceProperties
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+    options.release = 21
+}
+
+idea {
+    module {
+        downloadSources = true
+        downloadJavadoc = true
+    }
+}

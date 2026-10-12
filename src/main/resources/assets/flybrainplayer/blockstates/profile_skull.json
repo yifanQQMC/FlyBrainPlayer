@@ -1,0 +1,100 @@
+{
+  "variants": {
+    "type=0,facing=north": {
+      "model": "flybrainplayer:block/profile_skull_player"
+    },
+    "type=0,facing=south": {
+      "model": "flybrainplayer:block/profile_skull_player"
+    },
+    "type=0,facing=east": {
+      "model": "flybrainplayer:block/profile_skull_player"
+    },
+    "type=0,facing=west": {
+      "model": "flybrainplayer:block/profile_skull_player"
+    },
+    "type=1,facing=north": {
+      "model": "flybrainplayer:block/profile_skull_zombie"
+    },
+    "type=1,facing=south": {
+      "model": "flybrainplayer:block/profile_skull_zombie"
+    },
+    "type=1,facing=east": {
+      "model": "flybrainplayer:block/profile_skull_zombie"
+    },
+    "type=1,facing=west": {
+      "model": "flybrainplayer:block/profile_skull_zombie"
+    },
+    "type=2,facing=north": {
+      "model": "flybrainplayer:block/profile_skull_skeleton"
+    },
+    "type=2,facing=south": {
+      "model": "flybrainplayer:block/profile_skull_skeleton"
+    },
+    "type=2,facing=east": {
+      "model": "flybrainplayer:block/profile_skull_skeleton"
+    },
+    "type=2,facing=west": {
+      "model": "flybrainplayer:block/profile_skull_skeleton"
+    },
+    "type=3,facing=north": {
+      "model": "flybrainplayer:block/profile_skull_creeper"
+    },
+    "type=3,facing=south": {
+      "model": "flybrainplayer:block/profile_skull_creeper"
+    },
+    "type=3,facing=east": {
+      "model": "flybrainplayer:block/profile_skull_creeper"
+    },
+    "type=3,facing=west": {
+      "model": "flybrainplayer:block/profile_skull_creeper"
+    },
+    "type=4,facing=north": {
+      "model": "flybrainplayer:block/profile_skull_enderman"
+    },
+    "type=4,facing=south": {
+      "model": "flybrainplayer:block/profile_skull_enderman"
+    },
+    "type=4,facing=east": {
+      "model": "flybrainplayer:block/profile_skull_enderman"
+    },
+    "type=4,facing=west": {
+      "model": "flybrainplayer:block/profile_skull_enderman"
+    },
+    "type=5,facing=north": {
+      "model": "flybrainplayer:block/profile_skull_piglin"
+    },
+    "type=5,facing=south": {
+      "model": "flybrainplayer:block/profile_skull_piglin"
+    },
+    "type=5,facing=east": {
+      "model": "flybrainplayer:block/profile_skull_piglin"
+    },
+    "type=5,facing=west": {
+      "model": "flybrainplayer:block/profile_skull_piglin"
+    },
+    "type=6,facing=north": {
+      "model": "flybrainplayer:block/profile_skull_wither"
+    },
+    "type=6,facing=south": {
+      "model": "flybrainplayer:block/profile_skull_wither"
+    },
+    "type=6,facing=east": {
+      "model": "flybrainplayer:block/profile_skull_wither"
+    },
+    "type=6,facing=west": {
+      "model": "flybrainplayer:block/profile_skull_wither"
+    },
+    "type=7,facing=north": {
+      "model": "flybrainplayer:block/profile_skull_slime"
+    },
+    "type=7,facing=south": {
+      "model": "flybrainplayer:block/profile_skull_slime"
+    },
+    "type=7,facing=east": {
+      "model": "flybrainplayer:block/profile_skull_slime"
+    },
+    "type=7,facing=west": {
+      "model": "flybrainplayer:block/profile_skull_slime"
+    }
+  }
+}

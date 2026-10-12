@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "pattern": [
+    "RSR",
+    "SNS",
+    "RSR"
+  ],
+  "key": {
+    "R": { "item": "minecraft:redstone" },
+    "S": { "item": "minecraft:sugar" },
+    "N": { "item": "minecraft:carved_pumpkin" }
+  },
+  "result": {
+    "id": "flybrainplayer:fly_brain_block",
+    "count": 1
+  }
+}

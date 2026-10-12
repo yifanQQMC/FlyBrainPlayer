@@ -1,0 +1,31 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+issueTrackerURL=""
+
+[[mods]]
+modId="flybrainplayer"
+version="${mod_version}"
+displayName="Fly Brain Player 果蝇脑AI玩家"
+logoFile=""
+credits=""
+authors="Abu"
+description='''
+用红石块（果蝇大脑/Connectome）+ 雕刻南瓜（视觉扫描仪）组装出
+一只由真实果蝇神经环路启发的 AI 玩家。
+感受器→蘑菇体稀疏编码→侧角输出→移动意图，全部在服务端实时演化。
+'''
+
+[[dependencies.flybrainplayer]]
+    modId="neoforge"
+    mandatory=true
+    versionRange="[21,)"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.flybrainplayer]]
+    modId="minecraft"
+    mandatory=true
+    versionRange="[1.21.1,1.21.2)"
+    ordering="NONE"
+    side="BOTH"

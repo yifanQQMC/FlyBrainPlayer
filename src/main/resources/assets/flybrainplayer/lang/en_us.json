@@ -1,0 +1,8 @@
+{
+  "block.flybrainplayer.fly_brain_block": "Fly Brain (Redstone Block)",
+  "block.flybrainplayer.pumpkin_scanner": "Pumpkin Head Scanner",
+  "block.flybrainplayer.profile_skull": "Profile Skull (AI Carrier)",
+  "item.flybrainplayer.brain_player_summoner": "AI Player Summoner",
+  "item.flybrainplayer.skull_selector": "Skull Selector",
+  "entity.flybrainplayer.brain_player": "Fly-Brain AI Player"
+}

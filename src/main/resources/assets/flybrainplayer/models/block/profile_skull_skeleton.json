@@ -1,0 +1,7 @@
+{
+  "parent": "minecraft:block/skull",
+  "render_type": "minecraft:cutout",
+  "textures": {
+    "skull": "flybrainplayer:block/profile_skull_skeleton"
+  }
+}

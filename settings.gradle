@@ -1,0 +1,15 @@
+pluginManagement {
+    repositories {
+        mavenLocal()
+        maven { url = "https://maven.neoforged.net/releases" }
+        maven { url = "https://repo.spongepowered.org/maven" }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version("0.8.0")
+}
+
+rootProject.name = "flybrainplayer"

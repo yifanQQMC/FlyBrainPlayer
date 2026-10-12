@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "redstone",
+  "ingredients": [
+    { "item": "flybrainplayer:fly_brain_block" },
+    { "item": "flybrainplayer:brain_player_summoner" }
+  ],
+  "result": {
+    "id": "flybrainplayer:brain_player_summoner",
+    "count": 1
+  }
+}

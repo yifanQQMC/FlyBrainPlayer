@@ -1,0 +1,60 @@
+# ===== Gradle / 构建产物 =====
+build/
+.gradle/
+out/
+*.class
+!gradle/wrapper/gradle-wrapper.jar
+
+# ===== 运行测试产生的东西 =====
+# runServer / runClient 的工作目录，含测试世界、存档、日志、RCON 密钥
+runs/
+run/
+*.log
+logs/
+log/
+
+# ===== 敏感信息 =====
+# RCON 密码、服务器配置
+server.properties
+eula.txt
+*.mcserver
+
+# ===== IDE =====
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+bin/
+out/
+nbproject/
+
+# ===== IDE / 编辑器临时文件 =====
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+
+# ===== 其他 =====
+*.tmp
+*.bak
+*.orig
+*.rej
+
+# ===== 素材下载缓存 =====
+# tools/FetchSkin.java 抓下来的网页缓存（几十 KB，纯中间产物）
+tools/*.html

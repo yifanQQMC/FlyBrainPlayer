@@ -1,0 +1,8 @@
+{
+  "block.flybrainplayer.fly_brain_block": "果蝇脑（红石块）",
+  "block.flybrainplayer.pumpkin_scanner": "南瓜头扫描仪（雕刻南瓜）",
+  "block.flybrainplayer.profile_skull": "头颅（AI 载体）",
+  "item.flybrainplayer.brain_player_summoner": "AI 玩家召唤器",
+  "item.flybrainplayer.skull_selector": "头颅选择器",
+  "entity.flybrainplayer.brain_player": "果蝇脑 AI 玩家"
+}
