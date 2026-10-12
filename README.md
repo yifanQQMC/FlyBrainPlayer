@@ -3,6 +3,30 @@
 用 **红石块（果蝇大脑）+ 雕刻南瓜（视觉扫描仪）** 组装出一个由果蝇神经环路驱动的 AI 玩家。
 Minecraft 1.21.1 · NeoForge 21.1.219
 
+<p align="center">
+  <img src="skull_compare.png" alt="8 种头颅" width="100%">
+  <br>
+  <em>8 种头颅 = 8 套技能树 + 8 种性格 + 8 张独立皮肤</em>
+</p>
+
+[![Minecraft](https://img.shields.io/badge/Minecraft-1.21.1-brightgreen.svg)](https://www.minecraft.net/)
+[![NeoForge](https://img.shields.io/badge/NeoForge-21.1.219-orange.svg)](https://neoforged.net/)
+[![Java](https://img.shields.io/badge/Java-21-blue.svg)](https://adoptium.net/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Build](https://img.shields.io/badge/build-passing-success.svg)](build.gradle)
+
+---
+
+## 目录
+
+- [一、这是什么](#一这是什么)
+- [二、玩法](#二玩法)
+- [三、大脑独立与基础预训练](#三每只-ai-的大脑是独立的而且都经过预训练)
+- [四、代码结构](#四代码结构)
+- [五、构建](#五构建)
+- [六、技术要点](#六技术要点)
+- [七、自动化验证](#七自动化验证)
+
 ---
 
 ## 一、这是什么
@@ -14,14 +38,27 @@ Minecraft 1.21.1 · NeoForge 21.1.219
 
 | 果蝇神经结构 | 本模组对应 |
 |---|---|
-| 嗅觉受体 ORN → 投影神经元 PN | `Sensors` 的 20 个输入通道 |
+| 嗅觉受体 ORN → 投影神经元 PN | `Sensors` 的 24 个输入通道 |
 | 嗅小球 → Kenyon 细胞（蘑菇体） | 50 个 KC，k-WTA(3) 稀疏编码 |
-| MBON（蘑菇体输出神经元） | 12 个动作输出通道 |
+| MBON（蘑菇体输出神经元） | 14 个动作输出通道 |
 | 侧角 Lateral Horn（先天通路） | 威胁→攻击、障碍→转向，不可学习 |
 | PAM/PPL1 多巴胺神经元 | 奖励信号 + 资格迹 Hebbian 学习 |
 | 夜间睡眠记忆巩固 | 每 400 tick「睡一次」重放经验 |
 
 **没有一行硬编码的行为树**——所有动作都是 MBON 通道竞争的结果。
+
+---
+
+## 亮点
+
+| | |
+|---|---|
+| 🧠 **会学习的大脑** | 多巴胺 Hebbian 学习，突触权重写进 NBT，关服重开还记得 |
+| 🎓 **出生即会做事** | 基础预训练把侧角先天通路当教师，见食物走、见怪打、遇坑跳 |
+| 🌐 **自己查资料** | 上 minecraft.wiki 学词条，学到「钻石在 y=-59..-16」后真的会往下挖 |
+| 🎭 **8 种头颅** | 玩家/僵尸/骷髅/苦力怕/末影人/猪灵/凋灵/史莱姆，各有技能树 + 性格 + 皮肤 |
+| 💬 **能聊天** | 问它「AI 钻石在哪挖」，它会回答；不同头颅语气还不一样 |
+| 🫂 **个体独立** | 每只 AI 的大脑权重互不相同（`brainFingerprint()` 可验证） |
 
 ---
 
@@ -246,8 +283,8 @@ AI 玩家"站着不动"这类问题几乎都出在 PN 输入或 MBON 输出上�
 [BrainDebug] act=10 navDone=false onGnd=true vXZ=0.005 | PN[4=1.00 13=0.55 15=1.00] | OUT[0.34 ... 0.55 ...]
 ```
 
-- `PN[..]` = 20 个感受器通道的激活值（编号见 `FlyBrain.java` 常量）
-- `OUT[..]` = 12 个 MBON 动作通道的输出
+- `PN[..]` = 24 个感受器通道的激活值（编号见 `FlyBrain.java` 常量）
+- `OUT[..]` = 14 个 MBON 动作通道的输出
 - `act=` = 当前胜出的动作编号（0 前进 / 4 跳跃 / 5 停止 / 6 攻击 / 10 游走）
 - `vXZ=` = 实际水平速度，恒为 0 说明导航没在驱动
 
@@ -303,3 +340,18 @@ python rcon.py "execute positioned 0 61 0 run brain brains"
 
 共 3 只大脑，指纹 3 个唯一 ✓ 全部互不相同
 ```
+---
+
+## 许可
+
+MIT License，详见 [LICENSE](LICENSE)。
+
+皮肤 `textures/entity/player.png`（以及由它派生的 `brain_player.png`）来自
+[SkinsMC](https://skinsmc.org/skin/676300) 的 "Cyborg Steve Half Face"，
+属于第三方创作，已在 LICENSE 中单独标注。其余 7 张头颅皮肤由
+`gen_skulls.py` 程序化生成。
+
+Minecraft 相关名称与素材版权归 Mojang Studios 所有。本项目为非官方模组，
+与 Mojang Studios 无关。
+
+更新记录见 [CHANGELOG.md](CHANGELOG.md)，参与开发见 [CONTRIBUTING.md](CONTRIBUTING.md)。
