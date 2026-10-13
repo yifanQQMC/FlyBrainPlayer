@@ -3,6 +3,8 @@
 > 结论：**100 万个 MC 实体不可行**（实测稳定上限约 2,800 只），
 > 但**100 万只 AI 的文明模拟已经跑通** —— 用离线模拟器，见第七节。
 >
+> **正常世界 + 客户端在场**已实测 1,200 只同图运行（见第十一节）。
+>
 > 两条路线都验证过了：
 > - MC 实体路线：~2,800 只/服务端（有世界、可交互，但需玩家在场才 tick）
 > - 离线模拟路线：**1,000,000 只/单进程**（纯数据，270 万个体-tick/秒）
@@ -352,3 +354,77 @@ grep -c "BrainDebug" runs/server/logs/latest.log   # 数字不再增长
 | 螺旋分布在索引小时半径小 | 前 450 只挤中心，触发单区块上限 | 用网格分布，强制分散 |
 | 一次 summon 2000 个 | 27 秒卡顿（瞬时峰值） | 分批 + 等延迟恢复 |
 | `simulation-distance` 不是命令 | `Unknown or incomplete command` | 改 server.properties 重启，但对无玩家场景无效 |
+
+
+---
+
+## 十一、正常世界文明测试（客户端在场）
+
+### 关键前置：起客户端
+
+前面所有测试都是 RCON 无人环境，实体不 tick。**起客户端后玩家在场，
+实体才真正活起来** —— 这是文明测试的前提。
+
+```bash
+# 服务端
+java -classpath "gradle\wrapper\gradle-wrapper.jar"     org.gradle.wrapper.GradleWrapperMain runServer
+
+# 客户端（自动连入本地服务器，不用手点多人游戏）
+java -classpath "gradle\wrapper\gradle-wrapper.jar"     org.gradle.wrapper.GradleWrapperMain runClient -Pcivtest
+```
+
+`-Pcivtest` 会在 `build.gradle` 里加 `--quickPlayMultiplayer 127.0.0.1:25565`。
+
+### 踩坑：NeoForge dev 默认是超平坦世界
+
+`runs/server/server.properties` 里默认：
+```
+level-type=minecraft\:flat
+generator-settings={"layers":[bedrock,dirt,grass],"biome":"plains"}
+```
+
+**这就是之前所有测试都在"超平坦平台"上的原因** —— 不是我铺的，
+是 dev 环境默认配置。改成：
+```
+level-type=minecraft\:normal
+```
+然后**删掉 `runs/server/world`** 才会重新生成（不删的话服务端
+会继续加载旧存档）。
+
+验证正常地形的方法：查玩家所在位置的地表方块。
+正常世界 y≈70 有草/石头；超平坦则是我铺的平台。
+
+### 正常世界实测（400 只 / 半径 20）
+
+| 指标 | 超平坦 | 正常世界 |
+|---|---|---|
+| 主线程延迟 | 200–400 ms | **0–8 ms** |
+| 运动中比例 | 87% | **91%** |
+| 头颅种类 | 4–5 种可见 | **8 种全齐** |
+| 160 秒流失 | 0 | **0** |
+
+**正常世界反而更快** —— 因为 AI 分散在自然地形起伏里，
+不像平台上那样挤成一团。扎堆是性能杀手，不是规模本身。
+
+头颅分布（400 只采样）：
+```
+59 [brute]   56 [balanced]   53 [volatile]   53 [sniper]
+49 [forager] 49 [artisan]    45 [wither]     36 [scholar]
+```
+→ `finalizeSpawn` 随机分配 8 种头颅均匀生效。
+
+### 加压到 1,200 只
+
+恢复后延迟 186–716 ms，稳定运行。召唤过程出现 45 秒延迟峰值，
+原因是 AI 生成在玩家周围 30 格外，**那些区块还没加载**，
+服务端要现场生成地形。让区块先加载完（玩家走近或提前 forceload）即可避免。
+
+### 规模上限总结（有人类玩家在场）
+
+| 部署方式 | 上限 | 备注 |
+|---|---|---|
+| 超平坦平台扎堆 | ~850 | 挤压 + 寻路冲突 |
+| **正常地形分散** | **~1,200+** | 更快更稳 |
+| 纯 summon 密集（无地形加载） | ~2,800 | 提前铺好台 + forceload |
+
+→ **分散 > 集中，自然地形 > 人工平台**。

@@ -635,6 +635,67 @@ public class BrainPlayerEntity extends PathfinderMob {
      *   需要时把 com.flybrain 调到 DEBUG 即可看到。 */
     private int birthLogged;
 
+/**
+     * 自然生成规则：AI 自己在世界里找地方出生。
+     *
+     * 条件（比原版怪物宽松，毕竟它们是"玩家"不是怪物）：
+     *   - 脚下有实心方块可站
+     *   - 头不被卡住
+     *   - 亮度 ≥ 7（不至于在黑洞里刷出来）
+     *   - 不在水里
+     *
+     * 群系/高度不限 —— 让它们满世界跑，这才叫"自由生成"。
+     */
+    /**
+     * 自然生成规则：AI 自己在世界里找地方出生。
+     *
+     * 注意这是**静态方法**（1.21.1 签名带 EntityType + RandomSource）——
+     * 写成实例方法编译直接报"方法不会覆盖超类型方法"。
+     *
+     * 条件（比原版怪物宽松，毕竟是"玩家"不是怪物）：
+     *   - 脚下有实心方块、身体是空气
+     *   - 亮度 ≥ 7（别在全黑洞穴里无限刷）
+     *   - 不在水里
+     * 群系/高度不限 —— 满世界跑，这才叫自由生成。
+     */
+    public static boolean checkMobSpawnRules(
+            net.minecraft.world.entity.EntityType<? extends net.minecraft.world.entity.Mob> type,
+            net.minecraft.world.level.LevelAccessor level,
+            net.minecraft.world.entity.MobSpawnType reason,
+            net.minecraft.core.BlockPos pos,
+            net.minecraft.util.RandomSource random) {
+        if (reason == net.minecraft.world.entity.MobSpawnType.SPAWNER) return true;
+        if (!level.getBlockState(pos.below()).isValidSpawn(level, pos, type)) return false;
+        if (!level.getBlockState(pos).isAir()) return false;
+        if (!level.getBlockState(pos.above()).isAir()) return false;
+        if (level.getFluidState(pos).is(net.minecraft.tags.FluidTags.WATER)) return false;
+        return level.getRawBrightness(pos, 0) >= 7;
+    }
+
+    /**
+     * 出生时的初始化：随机头颅 + 随机性格。
+     * 这样满世界自由生成的 AI 天然就是多样化种群，
+     * 而不是清一色同一个体。
+     */
+    @Override
+    public net.minecraft.world.entity.SpawnGroupData finalizeSpawn(
+            net.minecraft.world.level.ServerLevelAccessor level,
+            net.minecraft.world.DifficultyInstance difficulty,
+            net.minecraft.world.entity.MobSpawnType reason,
+            net.minecraft.world.entity.SpawnGroupData data) {
+        // 随机挑一种头颅（8 种均分概率）
+        com.flybrain.profile.SkullKind[] all = com.flybrain.profile.SkullKind.values();
+        this.skull = all[this.getRandom().nextInt(all.length)];
+        this.applyProfile(this.skull);   // 同步到客户端 + 调大脑性格
+        return super.finalizeSpawn(level, difficulty, reason, data);
+    }
+
+    /** 一次最多生几只 —— 控制单点密度，避免一坨全挤在一起 */
+    @Override
+    public int getMaxSpawnClusterSize() {
+        return 4;
+    }
+
     @Override
     public void tick() {
         super.tick();

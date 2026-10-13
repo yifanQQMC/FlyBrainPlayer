@@ -23,10 +23,16 @@ runs {
 
     client {
         systemProperty("neoforge.enabledGameTestNamespaces", "flybrainplayer")
-        // 自动化验证：./gradlew runClient -Pquickplay=存档名 直接进世界
+        // 自动化验证：./gradlew runClient -Pquickplay=存档名 直接进单人世界
         if (project.hasProperty("quickplay")) {
             programArguments.addAll("--quickPlaySingleplayer",
                     project.property("quickplay").toString())
+        }
+        // 文明测试专用：./gradlew runClient -Pcivtest 直接进本地服务器
+        // 省掉手动点"多人游戏→添加服务器→加入"，且让玩家在场激活实体 tick
+        if (project.hasProperty("civtest")) {
+            def addr = project.findProperty("server") ?: "127.0.0.1:25565"
+            programArguments.addAll("--quickPlayMultiplayer", addr.toString())
         }
     }
 

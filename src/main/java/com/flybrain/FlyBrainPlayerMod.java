@@ -85,15 +85,17 @@ public class FlyBrainPlayerMod {
     /**
      * AI 玩家实体类型。
      *
-     * 分类必须用 {@link MobCategory#MISC} 而不是 CREATURE/MONSTER：
-     * 后两者受**每区块自然生成上限（mob cap）**约束，summon 出来的实体
-     * 在密集区域会被服务端静默丢弃（命令返回成功但实体根本没创建）。
-     * 实测用 CREATURE 时同区块最多只能存在约 380 只，
-     * 换成 MISC 后无此限制。
+     * 分类用 {@link MobCategory#CREATURE} —— 自然生成只对
+     * CREATURE/MONSTER 等类别生效，MISC（盔甲架那类）根本不参与生成。
+     *
+     * 代价：受每区块 mob cap 约束（单区块约 380 上限）。
+     * 但**自然生成**的 AI 会分散在世界各处，不像 summon 那样挤在一处，
+     * 所以这个上限对"自由生成"场景影响不大。
+     * 需要超大规模密集部署时再考虑改 MISC。
      */
     public static final DeferredHolder<EntityType<?>, EntityType<BrainPlayerEntity>> BRAIN_PLAYER =
             ENTITIES.register("brain_player",
-                    () -> EntityType.Builder.of(BrainPlayerEntity::new, MobCategory.MISC)
+                    () -> EntityType.Builder.of(BrainPlayerEntity::new, MobCategory.CREATURE)
                             .sized(0.6f, 1.8f)
                             .eyeHeight(1.62f)
                             .clientTrackingRange(10)
