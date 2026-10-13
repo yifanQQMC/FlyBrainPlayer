@@ -260,97 +260,118 @@ public class FlyBrain {
      */
     public void applyProfile(com.flybrain.profile.SkullKind kind) {
         if (kind == null) return;
+        var p = kind.personality();
+        applyPersonality(p.learningRate(), p.curiosity(),
+                p.aggression(), p.sociability());
+        // 技能专属通路
+        for (var skill : kind.skills()) {
+            applySkill(skill.name());
+        }
+    }
 
+    /**
+     * 直接用四维性格参数调制本能通路。
+     *
+     * 独立于 SkullKind（从而不依赖 Minecraft 的 Component）——
+     * 离线文明模拟器用它跑百万级大脑，不需要整个世界。
+     */
+    public void applyPersonality(float learningRate, float curiosity,
+                                 float aggression, float sociability) {
         // 每次套用前重置为出厂权重。
         // 不重置的话，换一次头颅就把上一套的乘性调制叠加一次，
         // 反复换头颅会让所有通路权重趋近 0，表现为"AI 什么都干不了"。
         resetInnate();
 
-        var p = kind.personality();
-
         // —— 攻击性调制：所有"威胁→攻击/后退"通路 ——
-        float aggr = Math.max(0f, p.aggression());
+        float aggr = Math.max(0f, aggression);
         boost(CH_THREAT, OUT_ATTACK, 0.3f + aggr * 2.2f);
         boost(CH_THREAT, OUT_BACK, 0.3f + (1f - aggr) * 1.0f);
 
         // —— 好奇度调制：学习相关通路 ——
-        float cur = Math.max(0f, p.curiosity());
+        float cur = Math.max(0f, curiosity);
         boost(CH_NOVELTY,   OUT_STUDY, 0.2f + cur * 1.8f);
         boost(CH_CURIOSITY, OUT_STUDY, 0.2f + cur * 1.2f);
         boost(CH_BOREDOM,   OUT_STUDY, 0.1f + cur * 1.0f);
 
         // —— 社交意愿调制 ——
-        float soc = Math.max(0f, p.sociability());
+        float soc = Math.max(0f, sociability);
         boost(CH_SOCIAL_TALK, OUT_TALK, 0.2f + soc * 1.6f);
         boost(CH_SOCIAL_TALK, OUT_GREET, 0.2f + soc * 1.0f);
 
-        // —— 技能专属通路 ——
-        for (var skill : kind.skills()) {
-            switch (skill) {
-                case BRAWL -> {
-                    boost(CH_THREAT, OUT_ATTACK, 1.6f);
-                    boost(CH_PAIN,  OUT_ATTACK, 0.8f);   // 被打会还手
-                    boost(CH_REWARD, OUT_ATTACK, 0.5f);
-                }
-                case MARKSMAN -> {
-                    boost(CH_THREAT, OUT_ATTACK, 0.9f);
-                    boost(CH_PAIN,  OUT_BACK,   1.4f);   // 保持距离
-                    boost(CH_TOUCH, OUT_BACK,   1.0f);
-                }
-                case FLEE -> {
-                    boost(CH_THREAT, OUT_BACK,  2.0f);
-                    boost(CH_TOUCH,  OUT_BACK,  1.2f);
-                    boost(CH_GAP,    OUT_BACK,  0.6f);
-                }
-                case MINING -> {
-                    boost(CH_ITEM,   OUT_DIG,   1.8f);
-                    boost(CH_HEIGHT, OUT_DIG,   0.8f);   // 往下挖
-                    boost(CH_TOUCH,  OUT_DIG,   1.0f);
-                }
-                case BUILDER -> {
-                    boost(CH_TOUCH,  OUT_DIG,   1.4f);
-                    boost(CH_ITEM,   OUT_DIG,   0.9f);
-                    boost(CH_HEIGHT, OUT_STOP,  0.5f);
-                }
-                case SCAVENGER -> {
-                    boost(CH_FOOD,   OUT_FORWARD, 2.0f);
-                    boost(CH_SOCIAL, OUT_FORWARD, 0.5f);
-                }
-                case CURIOUS -> {
-                    boost(CH_CURIOSITY, OUT_STUDY, 1.5f);
-                    boost(CH_NOISE,     OUT_WANDER, 1.0f);
-                }
-                case SOCIAL -> {
-                    boost(CH_MASTER, OUT_GREET, 1.6f);
-                    boost(CH_SOCIAL, OUT_TALK,  1.2f);
-                    boost(CH_FOLLOW, OUT_SPRINT, 1.0f);
-                }
-                case ASSAULT -> {
-                    boost(CH_THREAT, OUT_ATTACK, 2.5f);
-                    boost(CH_REWARD, OUT_DANCE,  0.6f);
-                }
-                case EXPLOSIVE -> {
-                    boost(CH_THREAT, OUT_ATTACK, 3.0f);
-                    boost(CH_REWARD, OUT_DANCE,  1.0f);
-                    boost(CH_TOUCH,  OUT_DANCE,  0.8f);
-                }
-                case DESTRUCTION -> {
-                    boost(CH_THREAT, OUT_ATTACK, 3.5f);
-                    boost(CH_TOUCH,  OUT_DIG,    1.6f);
-                    boost(CH_PAIN,   OUT_ATTACK, 2.0f);
-                }
-                case PORTAL -> {
-                    boost(CH_GAP,    OUT_JUMP,   2.0f);
-                    boost(CH_FALLING, OUT_JUMP,  1.5f);
-                    boost(CH_NOISE,  OUT_SPRINT, 0.8f);
-                }
-            }
-        }
-
         // 学习率直接由性格决定（学者型 0.055，凋灵型 0.008）
-        learningRate = p.learningRate();
+        // 参数名与字段同名，必须用 this 消歧，否则是自赋值
+        this.learningRate = learningRate;
 
         applyProfileCommitted = true;
+    }
+
+    /**
+     * 按技能名调制通路（离线模拟器用）。
+     *
+     * 用字符串而不是 {@code SkullKind.Skill} 枚举，这样 FlyBrain 完全不依赖
+     * 任何 Minecraft 类型 —— 文明模拟器可以直接 import 它。
+     */
+    public void applySkill(String skill) {
+        switch (skill) {
+            case "BRAWL" -> {
+                boost(CH_THREAT, OUT_ATTACK, 1.6f);
+                boost(CH_PAIN,  OUT_ATTACK, 0.8f);   // 被打会还手
+                boost(CH_REWARD, OUT_ATTACK, 0.5f);
+            }
+            case "MARKSMAN" -> {
+                boost(CH_THREAT, OUT_ATTACK, 0.9f);
+                boost(CH_PAIN,  OUT_BACK,   1.4f);   // 保持距离
+                boost(CH_TOUCH, OUT_BACK,   1.0f);
+            }
+            case "FLEE" -> {
+                boost(CH_THREAT, OUT_BACK,  2.0f);
+                boost(CH_TOUCH,  OUT_BACK,  1.2f);
+                boost(CH_GAP,    OUT_BACK,  0.6f);
+            }
+            case "MINING" -> {
+                boost(CH_ITEM,   OUT_DIG,   1.8f);
+                boost(CH_HEIGHT, OUT_DIG,   0.8f);   // 往下挖
+                boost(CH_TOUCH,  OUT_DIG,   1.0f);
+            }
+            case "BUILDER" -> {
+                boost(CH_TOUCH,  OUT_DIG,   1.4f);
+                boost(CH_ITEM,   OUT_DIG,   0.9f);
+                boost(CH_HEIGHT, OUT_STOP,  0.5f);
+            }
+            case "SCAVENGER" -> {
+                boost(CH_FOOD,   OUT_FORWARD, 2.0f);
+                boost(CH_SOCIAL, OUT_FORWARD, 0.5f);
+            }
+            case "CURIOUS" -> {
+                boost(CH_CURIOSITY, OUT_STUDY, 1.5f);
+                boost(CH_NOISE,     OUT_WANDER, 1.0f);
+            }
+            case "SOCIAL" -> {
+                boost(CH_MASTER, OUT_GREET, 1.6f);
+                boost(CH_SOCIAL, OUT_TALK,  1.2f);
+                boost(CH_FOLLOW, OUT_SPRINT, 1.0f);
+            }
+            case "ASSAULT" -> {
+                boost(CH_THREAT, OUT_ATTACK, 2.5f);
+                boost(CH_REWARD, OUT_DANCE,  0.6f);
+            }
+            case "EXPLOSIVE" -> {
+                boost(CH_THREAT, OUT_ATTACK, 3.0f);
+                boost(CH_REWARD, OUT_DANCE,  1.0f);
+                boost(CH_TOUCH,  OUT_DANCE,  0.8f);
+            }
+            case "DESTRUCTION" -> {
+                boost(CH_THREAT, OUT_ATTACK, 3.5f);
+                boost(CH_TOUCH,  OUT_DIG,    1.6f);
+                boost(CH_PAIN,   OUT_ATTACK, 2.0f);
+            }
+            case "PORTAL" -> {
+                boost(CH_GAP,    OUT_JUMP,   2.0f);
+                boost(CH_FALLING, OUT_JUMP,  1.5f);
+                boost(CH_NOISE,  OUT_SPRINT, 0.8f);
+            }
+            default -> { }   // 未知技能忽略
+        }
     }
 
     /** 对某条通路做乘性调制（保底不会归零） */

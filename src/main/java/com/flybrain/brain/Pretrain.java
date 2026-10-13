@@ -60,7 +60,10 @@ public final class Pretrain {
                     cachedTemplate = trained.weights;
                     cachedLoss = trained.finalLoss;
                     cachedMillis = System.currentTimeMillis() - t0;
-                    com.flybrain.FlyBrainPlayerMod.LOGGER.info(
+                                        // 用自己的 SLF4J logger，不引用 FlyBrainPlayerMod.LOGGER ——
+                    // 否则 Pretrain 会连带依赖整个 NeoForge 注册表，
+                    // 导致 FlyBrain 无法在离线模拟器里独立运行。
+                    org.slf4j.LoggerFactory.getLogger("FlyBrain-Pretrain").info(
                             "[Pretrain] 基础预训练完成：{} 轮 x {} 情景，耗时 {}ms，"
                                     + "最终损失 {}（越小越接近侧角先天行为）",
                             EPOCHS, TRAIN_SCENARIOS, cachedMillis,

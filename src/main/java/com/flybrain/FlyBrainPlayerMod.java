@@ -82,9 +82,18 @@ public class FlyBrainPlayerMod {
     public static final DeferredRegister<EntityType<?>> ENTITIES =
             DeferredRegister.create(Registries.ENTITY_TYPE, MOD_ID);
 
+    /**
+     * AI 玩家实体类型。
+     *
+     * 分类必须用 {@link MobCategory#MISC} 而不是 CREATURE/MONSTER：
+     * 后两者受**每区块自然生成上限（mob cap）**约束，summon 出来的实体
+     * 在密集区域会被服务端静默丢弃（命令返回成功但实体根本没创建）。
+     * 实测用 CREATURE 时同区块最多只能存在约 380 只，
+     * 换成 MISC 后无此限制。
+     */
     public static final DeferredHolder<EntityType<?>, EntityType<BrainPlayerEntity>> BRAIN_PLAYER =
             ENTITIES.register("brain_player",
-                    () -> EntityType.Builder.of(BrainPlayerEntity::new, MobCategory.CREATURE)
+                    () -> EntityType.Builder.of(BrainPlayerEntity::new, MobCategory.MISC)
                             .sized(0.6f, 1.8f)
                             .eyeHeight(1.62f)
                             .clientTrackingRange(10)

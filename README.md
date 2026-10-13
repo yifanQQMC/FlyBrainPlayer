@@ -59,6 +59,8 @@ Minecraft 1.21.1 · NeoForge 21.1.219
 | 🎭 **8 种头颅** | 玩家/僵尸/骷髅/苦力怕/末影人/猪灵/凋灵/史莱姆，各有技能树 + 性格 + 皮肤 |
 | 💬 **能聊天** | 问它「AI 钻石在哪挖」，它会回答；不同头颅语气还不一样 |
 | 🫂 **个体独立** | 每只 AI 的大脑权重互不相同（`brainFingerprint()` 可验证） |
+| 🔬 **百万级模拟** | 离线跑 100 万只 AI，世代分布验证性格真实生效 |
+| 🔬 **百万级模拟** | 离线跑 100 万只 AI，世代分布验证性格真实生效 |
 
 ---
 
@@ -242,6 +244,8 @@ src/main/java/com/flybrain/
     └── ClientSetup.java            客户端注册
 
 gen_skulls.py       8 张头颅皮肤生成器（纯 Python，零依赖）
+tools/CivilizationSim.java  百万级 AI 文明模拟器（纯 Java）
+tools/CivilizationSim.java  百万级 AI 文明模拟器（纯 Java）
 gen_tex.py          召唤器贴图生成器
 test_profile.py     头颅行为差异验证（纯 Python，5 项断言）
 test_pretrain.py    预训练收敛与基础能力验证（纯 Python，8 项断言）
