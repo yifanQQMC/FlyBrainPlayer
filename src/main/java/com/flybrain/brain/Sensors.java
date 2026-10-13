@@ -95,8 +95,20 @@ public final class Sensors {
         }
 
         // CH_SOCIAL：附近同类数量
-        List<BrainPlayerEntity> kin = level.getEntitiesOfClass(BrainPlayerEntity.class, new AABB(pos, pos).inflate(10));
-        pn[FlyBrain.CH_SOCIAL] = Mth.clamp((kin.size() - 1) / 3f, 0, 1);
+        //
+        // 性能关键：getEntitiesOfClass 是全区域实体扫描。
+        // 每只 AI 每次感知都扫一次 → N 只 AI 就是 O(N²)，
+        // 1000 只时实测这是最大瓶颈（比大脑前向传播贵得多）。
+        //
+        // 解法：**每 20 tick 才刷新一次**，中间用缓存值。
+        // 20 tick = 1 秒，对"附近有多少同类"这个慢变量完全够用。
+        if (self.socialScanCooldown-- <= 0) {
+            List<BrainPlayerEntity> kin = level.getEntitiesOfClass(
+                    BrainPlayerEntity.class, new AABB(pos, pos).inflate(10));
+            self.cachedKinCount = Mth.clamp((kin.size() - 1) / 3f, 0, 1);
+            self.socialScanCooldown = 20;
+        }
+        pn[FlyBrain.CH_SOCIAL] = self.cachedKinCount;
 
         // CH_HEIGHT：实际离地高度（数到第一个固体为止，不是数空气格数）
         int airBelow = 0;
@@ -125,15 +137,26 @@ public final class Sensors {
         pn[FlyBrain.CH_NOVELTY] = self.getCuriosityLevel();
 
         // CH_SOCIAL_TALK：附近有可交谈的对象（同类 AI 或玩家）
+        //
+        // 同上：这里也有一次 getEntitiesOfClass，是第二个 O(N²) 来源。
+        // 玩家数量通常很少，先查玩家（便宜）；只有在没玩家时才扫同类，
+        // 且同样做 20 tick 节流。
         int talkables = 0;
         for (var p : level.players()) {
             if (p.distanceToSqr(self) < 64) { talkables++; break; }
         }
         if (talkables == 0) {
-            for (BrainPlayerEntity other : level.getEntitiesOfClass(
-                    BrainPlayerEntity.class, new AABB(pos, pos).inflate(8), e -> e != self)) {
-                talkables++;
+            if (self.socialScanCooldown <= 0) {
+                int near = 0;
+                for (BrainPlayerEntity other : level.getEntitiesOfClass(
+                        BrainPlayerEntity.class, new AABB(pos, pos).inflate(8),
+                        e -> e != self)) {
+                    near++;
+                    if (near >= 2) break;
+                }
+                self.cachedTalkables = near;
             }
+            talkables = self.cachedTalkables;
         }
         pn[FlyBrain.CH_SOCIAL_TALK] = Mth.clamp(talkables / 2f, 0, 1);
 

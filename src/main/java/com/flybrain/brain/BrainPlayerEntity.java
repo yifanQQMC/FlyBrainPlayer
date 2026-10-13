@@ -61,6 +61,10 @@ public class BrainPlayerEntity extends PathfinderMob {
 
     /** 决策节流：果蝇反应延迟约 20ms → 游戏内每 4 tick 决策一次 */
     private int decisionCooldown;
+    /** 同类扫描节流：getEntitiesOfClass 是 O(N²) 的，必须缓存 */
+    public int socialScanCooldown = 0;
+    public float cachedKinCount = 0f;
+    public int cachedTalkables = 0;
     private int lastAction = FlyBrain.OUT_WANDER;
     private float[] lastActionVec;
     private int pendingRewardCooldown;
@@ -214,12 +218,13 @@ public class BrainPlayerEntity extends PathfinderMob {
             mob.lastActionVec = out;
             mob.executeAction(out);
 
-            // 神经链路诊断。排障时把 com.flybrain 调到 DEBUG 即可看到 PN/OUT 全量数值。
-            // 默认只对"非玩家头颅"的个体打 INFO——因为不同头颅的行为差异
-            // 本身就是这个模组最需要能观测的东西。
-            if (debugTicks++ % 40 == 0
-                    && (FlyBrainPlayerMod.LOGGER.isDebugEnabled()
-                        || mob.skull != SkullKind.PLAYER)) {
+            // 神经链路诊断。默认只在日志级别调到 DEBUG 时才输出。
+            //
+            // 曾经默认对"非玩家头颅"打 INFO，结果大规模部署时
+            // 1000 只 AI 每 40 tick 打一条 = 每 2 秒 25 条日志，
+            // 纯 I/O 浪费，实测拖慢 tick。现在统一由日志级别控制，
+            // 需要观测时把 com.flybrain 调到 DEBUG 即可。
+            if (debugTicks++ % 40 == 0 && FlyBrainPlayerMod.LOGGER.isDebugEnabled()) {
                 int best = 0;
                 for (int i = 1; i < FlyBrain.MB_COUNT; i++) if (out[i] > out[best]) best = i;
                 StringBuilder pnDump = new StringBuilder();
@@ -396,17 +401,24 @@ public class BrainPlayerEntity extends PathfinderMob {
     /** 交谈：靠近最近的玩家或同类 AI，打个招呼 */
     private void doTalk() {
         LivingEntity target = null;
+        // 玩家通常很少，直接遍历（便宜）
         double bestD = 64;   // 8 格内
         for (var p : level().players()) {
             double d = p.distanceToSqr(this);
             if (d < bestD) { bestD = d; target = p; }
         }
-        if (target == null) {
+        // 同类扫描是 O(N²) 的第三个来源（1500 只时直接把 tick 堵死）。
+        // 复用 Sensors 的 20 tick 节流缓存：只在刷新 tick 扫，
+        // 并且只找最近的一个，够用就停。
+        if (target == null && socialScanCooldown <= 0) {
             for (BrainPlayerEntity other : level().getEntitiesOfClass(
-                    BrainPlayerEntity.class, getBoundingBox().inflate(8), e -> e != this)) {
+                    BrainPlayerEntity.class, getBoundingBox().inflate(8),
+                    e -> e != this)) {
                 double d = other.distanceToSqr(this);
-                if (d < bestD) { bestD = d; target = other; }
+                if (d < bestD) { bestD = d; target = other; break; }
             }
+            // 没找到也标记已扫，避免每 tick 重扫
+            socialScanCooldown = 20;
         }
         if (target == null) { wanderForward(0.8); return; }
 
@@ -617,14 +629,17 @@ public class BrainPlayerEntity extends PathfinderMob {
         }
     }
 
-    /** 刚出生时打一行日志，确认预训练生效 + 大脑独立 */
+    /** 刚出生时打一行日志，确认预训练生效 + 大脑独立。
+     *   默认关闭：1500 只同时出生时这条 INFO 会把日志 I/O 打满，
+     *   直接把 tick 堵死（实测实体全部超时消失）。
+     *   需要时把 com.flybrain 调到 DEBUG 即可看到。 */
     private int birthLogged;
 
     @Override
     public void tick() {
         super.tick();
         if (!level().isClientSide) {
-            if (birthLogged++ == 3) {     // 出生后稍等几 tick 再打，避免在构造期刷屏
+            if (birthLogged++ == 3 && FlyBrainPlayerMod.LOGGER.isDebugEnabled()) {
                 FlyBrainPlayerMod.LOGGER.info(
                         "[FlyBrain] #{} 出生：大脑指纹 {} | 突触总量 {} | "
                                 + "预训练 loss {}（耗时 {}ms）",
