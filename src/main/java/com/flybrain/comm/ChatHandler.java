@@ -30,11 +30,57 @@ public class ChatHandler {
         FlyBrainPlayerMod.LOGGER.info("[Brain] ChatHandler 已注册 (game bus)");
     }
 
+    /** 指令的回应后缀 —— 让玩家知道 AI 听懂了多少 */
+    private static String replyTail(BotCommand.Action a) {
+        return switch (a) {
+            case EXPLORE -> "，我去前面看看！";
+            case COME -> "，我过来了。";
+            case STOP -> "，我不动了。";
+            case ATTACK -> "，找家伙练练！";
+            case JUMP -> "！";
+            case WANDER -> "，随便逛逛。";
+            case GREET -> "！";
+            case NONE -> "";
+        };
+    }
+
     @SubscribeEvent
     public static void onChat(ServerChatEvent event) {
         ServerPlayer player = event.getPlayer();
         String raw = event.getRawText().trim();
         if (raw.isEmpty()) return;
+
+        // —— 第一优先：玩家指令（"ALEX，去探索一下前面"）——
+        // 指令要在大脑问答之前判断，否则"去探索一下前面"会被当成
+        // wiki 问题丢给 Dialogue，AI 就只会背书不会动。
+        var cmd = BotCommand.parse(raw);
+        if (cmd.action() != BotCommand.Action.NONE && cmd.botName() != null) {
+            for (var bot : player.level().getEntitiesOfClass(
+                    BrainPlayerEntity.class, player.getBoundingBox().inflate(32))) {
+                if (bot.name.equalsIgnoreCase(cmd.botName())) {
+                    boolean ok = bot.acceptCommand(cmd.action(), player);
+                    if (ok) {
+                        // 接受指令：回一句 + 转头看玩家，给即时反馈
+                        bot.getLookControl().setLookAt(player);
+                        bot.speak(player, Component.literal(
+                                "§e[" + bot.name + "] §a收到：" + cmd.action()
+                                        + replyTail(cmd.action())));
+                        FlyBrainPlayerMod.LOGGER.info(
+                                "[Brain] 玩家 {} 指令 {} → {} ({})",
+                                player.getName().getString(), cmd.botName(),
+                                bot.name, cmd.action());
+                    } else {
+                        bot.speak(player, Component.literal(
+                                "§e[" + bot.name + "] §c这个指令我做不到……"));
+                    }
+                    return;
+                }
+            }
+            // 喊了名字但附近没这只 AI
+            player.displayClientMessage(Component.literal(
+                    "§c附近没有叫 " + cmd.botName() + " 的 AI"), false);
+            return;
+        }
 
         // 找出附近正在被叫的 AI
         for (var bot : player.level().getEntitiesOfClass(BrainPlayerEntity.class,
@@ -75,6 +121,99 @@ public class ChatHandler {
     public static void onRegisterCommands(RegisterCommandsEvent event) {
         event.getDispatcher().register(Commands.literal("brain")
                 .requires(s -> s.hasPermission(0))
+                .then(Commands.literal("watch")
+                        .executes(ctx -> {
+                            var level = ctx.getSource().getLevel();
+                            var center = ctx.getSource().getPosition();
+                            var list = level.getEntitiesOfClass(
+                                    BrainPlayerEntity.class,
+                                    new net.minecraft.world.phys.AABB(center, center)
+                                            .inflate(64), e -> true);
+
+                            var sb = new StringBuilder();
+                            sb.append("\n§6════ 文明实时监控 ════\n");
+
+                            // 1. 人口与世代
+                            int n = list.size();
+                            if (n == 0) {
+                                sb.append("§c64 格内没有 AI\n");
+                                String out0 = sb.toString();
+                                FlyBrainPlayerMod.LOGGER.info("[Watch] {}", out0);
+                                ctx.getSource().sendSuccess(() ->
+                                        Component.literal(out0), false);
+                                return 0;
+                            }
+                            double avgGen = list.stream()
+                                    .mapToDouble(b -> b.brain.generation).average().orElse(0);
+                            int maxGen = list.stream()
+                                    .mapToInt(b -> (int) b.brain.generation).max().orElse(0);
+                            sb.append(String.format(
+                                    "§7人口 §f%d §8| §7平均世代 §f%.1f §8| §7最高 §f%d\n",
+                                    n, avgGen, maxGen));
+
+                            // 2. 世代直方图（文明进程的直接体现）
+                            int[] buckets = new int[6];   // 0/1-20/21-40/41-60/61-80/80+
+                            for (var b : list) {
+                                int g = (int) b.brain.generation;
+                                if (g == 0) buckets[0]++;
+                                else if (g <= 20) buckets[1]++;
+                                else if (g <= 40) buckets[2]++;
+                                else if (g <= 60) buckets[3]++;
+                                else if (g <= 80) buckets[4]++;
+                                else buckets[5]++;
+                            }
+                            sb.append("§7世代分布 §8");
+                            String[] labels = {"§8g0", "§71-20", "§a21-40",
+                                    "§a41-60", "§e61-80", "§680+"};
+                            for (int i = 0; i < 6; i++) {
+                                sb.append(labels[i]).append("§f")
+                                  .append(buckets[i]).append(" ");
+                            }
+                            sb.append("\n");
+
+                            // 3. 头颅比例（社会分工）
+                            sb.append("§7社会分工 §8");
+                            for (var k : com.flybrain.profile.SkullKind.values()) {
+                                long c = list.stream()
+                                        .filter(b -> b.getSkull() == k).count();
+                                if (c > 0) {
+                                    sb.append(k.color()).append(k.tag())
+                                      .append("§f:").append(c).append(" ");
+                                }
+                            }
+                            sb.append("\n");
+
+                            // 4. 知识文明（核心指标）
+                            int totalKnown = list.stream()
+                                    .mapToInt(b -> b.knownTopics.size()).sum();
+                            int teachings = list.stream()
+                                    .mapToInt(b -> b.teachings).sum();
+                            int learned = list.stream()
+                                    .mapToInt(b -> b.learned).sum();
+                            int libSize = com.flybrain.learn.KnowledgeBase.shared().size();
+                            long withKnowledge = list.stream()
+                                    .filter(b -> !b.knownTopics.isEmpty()).count();
+                            sb.append(String.format(
+                                    "§7知识库 §f%d 条 §8| §7个体掌握 §f%d 条次 §8| "
+                                            + "§7有知识者 §f%d/%d\n",
+                                    libSize, totalKnown, withKnowledge, n));
+                            sb.append(String.format(
+                                    "§7传授 §f%d 次 §8(教学相长) §7被教 §f%d 次\n",
+                                    teachings, learned));
+
+                            // 5. 活跃度（运动中比例）
+                            long moving = list.stream()
+                                    .filter(b -> b.getDeltaMovement()
+                                            .horizontalDistanceSqr() > 0.0004).count();
+                            sb.append(String.format("§7活跃度 §f%d/%d (%.0f%%)\n",
+                                    moving, n, moving * 100.0 / n));
+
+                            String out = sb.toString();
+                            FlyBrainPlayerMod.LOGGER.info("[Watch] {}", out);
+                            ctx.getSource().sendSuccess(() ->
+                                    Component.literal(out), false);
+                            return n;
+                        }))
                 .then(Commands.literal("brains")
                         .executes(ctx -> {
                             var level = ctx.getSource().getLevel();
@@ -93,8 +232,9 @@ public class ChatHandler {
                                 var b = bot.brain;
                                 fingerprints.add(b.brainFingerprint());
                                 lines.append(String.format(
-                                        "§7#%-3d §f%s §8| 指纹 §e%s §8| 世代 §f%d"
+                                        "§b%-10s §7#%-3d §f%s §8| 指纹 §e%s §8| 世代 §f%d"
                                                 + " §8| 权重 §f%.2f%n",
+                                        bot.name.isEmpty() ? "?" : bot.name,
                                         b.generation, bot.skull.displayName(),
                                         b.brainFingerprint(), b.generation,
                                         b.weightMagnitude()));
@@ -166,6 +306,42 @@ public class ChatHandler {
                                     FlyBrainPlayerMod.LOGGER.info("[Brain] {}", msg);
                                     if (p != null) {
                                         p.sendSystemMessage(Component.literal(msg));
+                                    }
+
+                                    // —— 玩家知识 → AI 种群（文明的火种）——
+                                    // 玩家查到的词条，当场教给附近 16 格内的 AI。
+                                    // 这样"文明"才有起点： otherwise AI 只会自己瞎逛，
+                                    // 永远不会知道 Diamond 是什么。
+                                    if (entry != null) {
+                                        // 有玩家 → 教给玩家附近；无玩家（RCON）→ 教给命令位置附近
+                                        var anchor = p != null
+                                                ? (net.minecraft.world.entity.Entity) p
+                                                : ctx.getSource().getEntity();
+                                        var center = anchor != null
+                                                ? anchor.getBoundingBox().inflate(16)
+                                                : new net.minecraft.world.phys.AABB(
+                                                        ctx.getSource().getPosition(),
+                                                        ctx.getSource().getPosition())
+                                                        .inflate(16);
+                                        var near = ctx.getSource().getLevel()
+                                                .getEntitiesOfClass(BrainPlayerEntity.class,
+                                                        center, e -> e.isAlive());
+                                        int taught = 0;
+                                        for (var bot : near) {
+                                            if (bot.knownTopics.add(entry.title())) {
+                                                bot.learned++;
+                                                bot.giveDopamine(0.5f);
+                                                taught++;
+                                            }
+                                        }
+                                        if (taught > 0) {
+                                            String t = "§d[文明] 「" + entry.title()
+                                                    + "」传授给了 " + taught + " 只 AI";
+                                            FlyBrainPlayerMod.LOGGER.info("[Brain] {}", t);
+                                            if (p != null) {
+                                                p.sendSystemMessage(Component.literal(t));
+                                            }
+                                        }
                                     }
                                     return 1;
                                 })))

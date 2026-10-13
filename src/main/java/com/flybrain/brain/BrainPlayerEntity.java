@@ -122,6 +122,31 @@ public class BrainPlayerEntity extends PathfinderMob {
     public static final EntityDataAccessor<String> DATA_SKULL =
             SynchedEntityData.defineId(BrainPlayerEntity.class, EntityDataSerializers.STRING);
 
+    /**
+     * 随机英文名（ALEX / STEVE / NICK ...），全服不重名。
+     * 玩家在聊天框喊这个名字就能下指令。
+     */
+    public String name = "";
+
+    /** 玩家指令的剩余执行 tick —— >0 表示正在执行指令 */
+    public int commandTicksLeft = 0;
+    /** 当前指令类型（对应 BotCommand.Action） */
+    public String currentCommand = "";
+    /** 指令目标坐标（探索类指令用） */
+    public net.minecraft.core.BlockPos commandTarget = null;
+
+    // ===== 个体知识账本（文明发展的最小单位）=====
+    /** 自己亲手学过的词条 */
+    public final java.util.LinkedHashSet<String> knownTopics = new java.util.LinkedHashSet<>();
+    /** 向全局知识库贡献过几条（首次学到） */
+    public int contributions = 0;
+    /** 教过别的 AI 几次 */
+    public int teachings = 0;
+    /** 从别的 AI 那学到几次 */
+    public int learned = 0;
+    /** 传授冷却：避免每 tick 都触发 */
+    public int teachCooldown = 0;
+
     public SkullKind getSkull() {
         return SkullKind.byTag(entityData.get(DATA_SKULL));
     }
@@ -218,6 +243,15 @@ public class BrainPlayerEntity extends PathfinderMob {
             mob.lastActionVec = out;
             mob.executeAction(out);
 
+            // —— 知识传授：文明传播的核心机制 ——
+            // 两只 AI 靠近时，知识多的一方把词条教给少的一方。
+            // 这模拟了原始社会的口耳相传：知识不再是"每人自己查 wiki"，
+            // 而是可以在种群里扩散，学者型 AI 成为知识节点。
+            if (mob.teachCooldown-- <= 0) {
+                mob.tryTeachNearby();
+                mob.teachCooldown = 60;      // 3 秒一次，别刷屏
+            }
+
             // 神经链路诊断。默认只在日志级别调到 DEBUG 时才输出。
             //
             // 曾经默认对"非玩家头颅"打 INFO，结果大规模部署时
@@ -247,6 +281,16 @@ public class BrainPlayerEntity extends PathfinderMob {
 
     /** 执行 MBON 输出：选最强动作通道 */
     void executeAction(float[] out) {
+        // —— 玩家指令优先于大脑决策 ——
+        // 被玩家点名下指令时，AI 暂时"听话"，指令做完再回到自主行为。
+        // 这是有意的设计：玩家交互应该有即时反馈，
+        // 而不是"我说了我的，它想它的"。
+        if (commandTicksLeft > 0) {
+            commandTicksLeft--;
+            if (runCommand()) return;      // 指令执行成功，这一 tick 就不走大脑
+            commandTicksLeft = 0;          // 执行失败（如目标没了）立即放弃
+        }
+
         int best = 0;
         for (int i = 1; i < FlyBrain.MB_COUNT; i++) if (out[i] > out[best]) best = i;
         lastAction = best;
@@ -354,8 +398,12 @@ public class BrainPlayerEntity extends PathfinderMob {
         researchTopic = topic;
         researchTicks = 0;
         getNavigation().stop();
-        setCustomName(Component.literal("§7" + topic + "§r#"
-                + brain.generation + " §8(研究中)"));
+        refreshNameTag();      // 别用旧格式覆盖英文名（曾把 ALEX 冲掉）
+        // 头顶临时标注"研究中"，让玩家看得出它在干活
+        setCustomName(net.minecraft.network.chat.Component.literal(
+                "§b" + name + " §r" + getSkull().color()
+                        + getSkull().displayName() + "§r#" + brain.generation
+                        + " §8(研究" + topic + ")"));
 
         // 异步去查（绝不能阻塞主线程）
         com.flybrain.learn.WikiClient.get().learn(topic, entry -> {
@@ -367,7 +415,12 @@ public class BrainPlayerEntity extends PathfinderMob {
                 pendingTopics.remove(topic);
                 researchTopic = null;
                 researchTicks = 0;
-                setCustomName(Component.literal("果蝇脑 #" + brain.generation));
+                // —— 个体知识账本：记录自己学到了什么 ——
+                // 这是"文明发展"的最小单位：每只 AI 有自己的知识积累，
+                // 而不是只往全局库里倒货。
+                knownTopics.add(entry.title());
+                contributions++;
+                refreshNameTag();
                 sl.sendParticles(ParticleTypes.ENCHANT,
                         getX(), getY() + 1.5, getZ(), 20, 0.4, 0.4, 0.4, 0.2);
                 speak(null, Component.literal(
@@ -440,8 +493,239 @@ public class BrainPlayerEntity extends PathfinderMob {
         }
     }
 
+    // ==================== 玩家指令系统 ====================
+
+    /**
+     * 接收玩家指令。
+     *
+     * @param action  指令类型
+     * @param source  下发指令的玩家（作为主人 + 朝向参考）
+     * @return 是否接受（拒绝时要给玩家反馈）
+     */
+    public boolean acceptCommand(com.flybrain.comm.BotCommand.Action action,
+                                 net.minecraft.world.entity.player.Player source) {
+        if (action == com.flybrain.comm.BotCommand.Action.NONE) return false;
+
+        // 记录主人：指令者就是当前要服从的人
+        if (source != null) {
+            master = source;
+            masterId = source.getUUID();
+        }
+        currentCommand = action.name();
+
+        switch (action) {
+            case EXPLORE -> {
+                // 朝面朝方向走 12-20 格（找可走到的点）
+                double yaw = Math.toRadians(source != null
+                        ? source.getYRot() : getYRot());
+                int dist = 12 + brainRandom().nextInt(9);
+                int tx = (int) (getX() - Math.sin(yaw) * dist);
+                int tz = (int) (getZ() + Math.cos(yaw) * dist);
+                commandTarget = pickWalkableTargetNear(tx, tz, 8);
+                if (commandTarget == null) {
+                    // 前方走不通，就随便探个方向
+                    Vec3 fallback = pickWalkableTarget(14);
+                    commandTarget = fallback == null ? null
+                            : net.minecraft.core.BlockPos.containing(fallback);
+                }
+                commandTicksLeft = 100;      // 5 秒
+                getLookControl().setLookAt(source != null ? source : this);
+                return commandTarget != null;
+            }
+            case COME -> {
+                commandTicksLeft = 160;      // 8 秒，够走到玩家旁边
+                return true;
+            }
+            case STOP -> {
+                getNavigation().stop();
+                commandTicksLeft = 40;       // 2 秒
+                return true;
+            }
+            case ATTACK -> {
+                commandTicksLeft = 120;
+                return true;
+            }
+            case JUMP -> {
+                if (onGround()) jumpFromGround();
+                commandTicksLeft = 10;
+                return true;
+            }
+            case WANDER -> {
+                commandTicksLeft = 200;      // 10 秒自由游走
+                return true;
+            }
+            case GREET -> {
+                commandTicksLeft = 30;
+                if (source != null) {
+                    getLookControl().setLookAt(source);
+                    speak(source, net.minecraft.network.chat.Component.literal(greetLine()));
+                }
+                return true;
+            }
+            default -> {
+                return false;
+            }
+        }
+    }
+
+    /** 每 tick 执行当前指令，返回 true = 指令仍有效 */
+    private boolean runCommand() {
+        var action = com.flybrain.comm.BotCommand.Action.valueOf(currentCommand);
+        LivingEntity m = getMaster();
+
+        switch (action) {
+            case EXPLORE -> {
+                if (commandTarget == null) return false;
+                double d2 = distanceToSqr(commandTarget.getX() + 0.5,
+                        commandTarget.getY(), commandTarget.getZ() + 0.5);
+                if (d2 < 4.0) return false;              // 到了
+                if (!getNavigation().moveTo(commandTarget.getX() + 0.5,
+                        commandTarget.getY(), commandTarget.getZ() + 0.5, 1.15)) {
+                    return false;                        // 走不通
+                }
+                return true;
+            }
+            case COME -> {
+                if (m == null) return false;
+                double dm = distanceToSqr(m);
+                if (dm < 4.0) return false;              // 已经贴身
+                getNavigation().moveTo(m, 1.2);
+                return true;
+            }
+            case STOP -> {
+                getNavigation().stop();
+                return true;
+            }
+            case ATTACK -> {
+                // 找最近的怪物；没有就回复"没目标"
+                var level = level();
+                var foes = level.getEntitiesOfClass(
+                        net.minecraft.world.entity.monster.Monster.class,
+                        getBoundingBox().inflate(12),
+                        e -> e.isAlive() && !e.isRemoved());
+                if (foes.isEmpty()) return false;
+                var target = foes.get(0);
+                getLookControl().setLookAt(target);
+                getNavigation().moveTo(target, 1.2);
+                return true;
+            }
+            case JUMP -> {
+                return commandTicksLeft > 0;
+            }
+            case WANDER -> {
+                wanderForward(1.0);
+                return true;
+            }
+            case GREET -> {
+                return commandTicksLeft > 0;
+            }
+            default -> {
+                return false;
+            }
+        }
+    }
+
+    /** 找 commandTarget 附近的可行走点（探索指令用，避免目标在悬崖里） */
+    private net.minecraft.core.BlockPos pickWalkableTargetNear(
+            int tx, int tz, int range) {
+        var level = level();
+        for (int r = 0; r <= range; r++) {
+            for (int dx = -r; dx <= r; dx++) {
+                for (int dz = -r; dz <= r; dz++) {
+                    if (Math.abs(dx) != r && Math.abs(dz) != r) continue;
+                    var p = new net.minecraft.core.BlockPos(tx + dx, 70, tz + dz);
+                    // 往下找 20 格内的地面
+                    for (int y = 90; y > 50; y--) {
+                        var at = new net.minecraft.core.BlockPos(p.getX(), y, p.getZ());
+                        var below = at.below();
+                        if (level.getBlockState(below).isSolid()
+                                && level.getBlockState(at).isAir()
+                                && level.getBlockState(at.above()).isAir()) {
+                            return at;
+                        }
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /** 不同头颅的打招呼语气 */
+    private String greetLine() {
+        return switch (getSkull()) {
+            case PLAYER -> "嗨！";
+            case ZOMBIE -> "呜……你好……";
+            case SKELETON -> "咔嗒（点头）";
+            case CREEPER -> "嘶……";
+            case ENDERMAN -> "……你好。（瞬移到你身旁）";
+            case PIGLIN -> "嘿！朋友！";
+            case WITHER -> "哼。";
+            case SLIME -> "啵啵！";
+        };
+    }
+
+    /**
+     * 尝试把知识教给附近的 AI。
+     *
+     * 规则：
+     *   - 只教 6 格内的同类
+     *   - 挑一个"对方不会、我会"的词条（优先挑自己最早学的）
+     *   - 对方收到后给正反馈（多巴胺），形成"社交=学习"的正循环
+     *
+     * 为什么限制 6 格：太远了不现实，而且全服广播开销大。
+     */
+    public void tryTeachNearby() {
+        if (knownTopics.isEmpty()) return;
+        var level = level();
+        var peers = level.getEntitiesOfClass(BrainPlayerEntity.class,
+                getBoundingBox().inflate(6), e -> e != this && e.isAlive());
+        if (peers.isEmpty()) return;
+
+        // 找知识最少的邻居当学生（帮扶后进）
+        BrainPlayerEntity student = null;
+        int minKnown = Integer.MAX_VALUE;
+        for (var p : peers) {
+            if (p.knownTopics.size() < minKnown) {
+                minKnown = p.knownTopics.size();
+                student = p;
+            }
+        }
+        if (student == null || student.knownTopics.size() >= knownTopics.size()) {
+            return;      // 没有可教的对象（对方懂得不比我少）
+        }
+
+        // 挑一个对方不会的词条
+        String topic = null;
+        for (String t : knownTopics) {
+            if (!student.knownTopics.contains(t)) {
+                topic = t;
+                break;
+            }
+        }
+        if (topic == null) return;
+
+        // 传授
+        student.knownTopics.add(topic);
+        student.learned++;
+        teachings++;
+        giveDopamine(0.3f);            // 教会别人也有奖励
+        student.giveDopamine(0.4f);    // 学到新东西奖励更多
+
+        // 视觉反馈： enchant 粒子 + 双方头顶冒消息
+        if (level instanceof ServerLevel sl) {
+            sl.sendParticles(ParticleTypes.ENCHANT,
+                    student.getX(), student.getY() + 1.5, student.getZ(),
+                    12, 0.3, 0.3, 0.3, 0.1);
+        }
+        // 只在 DEBUG 或偶尔汇报，避免 1000 只 AI 互相教刷爆日志
+        if (FlyBrainPlayerMod.LOGGER.isDebugEnabled() || brainRandom().nextFloat() < 0.02f) {
+            FlyBrainPlayerMod.LOGGER.info(
+                    "[Teach] {} 教会 {} 「{}」（学生已学 {} 条）",
+                    name, student.name, topic, student.knownTopics.size());
+        }
+    }
+
     private void wanderForward(double speed) {
-        // 每 20 tick 换一个随机朝向的新目标，制造果蝇式的 Lévy 飞行式游走
         if (wanderCooldown <= 0 || wanderTarget == null) {
             wanderCooldown = 20 + brainRandom().nextInt(20);
             wanderTarget = pickWalkableTarget(6 + brainRandom().nextInt(8));
@@ -687,7 +971,40 @@ public class BrainPlayerEntity extends PathfinderMob {
         com.flybrain.profile.SkullKind[] all = com.flybrain.profile.SkullKind.values();
         this.skull = all[this.getRandom().nextInt(all.length)];
         this.applyProfile(this.skull);   // 同步到客户端 + 调大脑性格
+        assignName();                     // 分配随机英文名（ALEX/STEVE/...）
         return super.finalizeSpawn(level, difficulty, reason, data);
+    }
+
+    /**
+     * 分配随机英文名，并把它写进头顶显示名。
+     *
+     * 头顶格式：{@code ALEX §7末影人#3} —— 英文名给玩家喊，
+     * 中文头颅名说明它是什么类型，#N 是世代。
+     *
+     * 全服去重（见 {@link NameGen}），否则喊一声两个 AI 都答应。
+     */
+    public void assignName() {
+        if (name == null || name.isEmpty()) {
+            name = NameGen.next();
+        }
+        refreshNameTag();
+    }
+
+    /** 刷新头顶名字（换了头颅/世代变化时也要调用） */
+    public void refreshNameTag() {
+        setCustomName(net.minecraft.network.chat.Component.literal(
+                "§b" + name + " §r" + getSkull().color()
+                        + getSkull().displayName() + "§r#" + brain.generation));
+        setCustomNameVisible(true);
+    }
+
+    /** 移除时释放名字，避免名字池被死 AI 占着 */
+    @Override
+    public void remove(net.minecraft.world.entity.Entity.RemovalReason reason) {
+        if (!level().isClientSide && name != null && !name.isEmpty()) {
+            NameGen.release(name);
+        }
+        super.remove(reason);
     }
 
     /** 一次最多生几只 —— 控制单点密度，避免一坨全挤在一起 */
@@ -817,6 +1134,14 @@ public class BrainPlayerEntity extends PathfinderMob {
         tag.putFloat("Curiosity", curiosity);
         tag.putString("LastFact", lastFact);
         tag.putString("Skull", skull.tag());
+        tag.putString("Name", name == null ? "" : name);   // 英文名持久化
+        // 个体知识账本（文明发展进度）
+        net.minecraft.nbt.ListTag known = new net.minecraft.nbt.ListTag();
+        for (String t : knownTopics) known.add(net.minecraft.nbt.StringTag.valueOf(t));
+        tag.put("KnownTopics", known);
+        tag.putInt("Contributions", contributions);
+        tag.putInt("Teachings", teachings);
+        tag.putInt("Learned", learned);
         net.minecraft.nbt.ListTag topics = new net.minecraft.nbt.ListTag();
         for (String t : pendingTopics) topics.add(net.minecraft.nbt.StringTag.valueOf(t));
         tag.put("PendingTopics", topics);
@@ -827,6 +1152,12 @@ public class BrainPlayerEntity extends PathfinderMob {
         super.readAdditionalSaveData(tag);
         if (tag.contains("FlyBrain")) brain.load(tag.getCompound("FlyBrain"));
         if (tag.hasUUID("MasterId")) masterId = tag.getUUID("MasterId");
+        // 恢复英文名：先占住名字（防止读档期间被新 AI 抢走），再刷新头顶
+        String savedName = tag.getString("Name");
+        if (!savedName.isEmpty()) {
+            name = savedName;
+            NameGen.reserve(name);
+        }
         boredom = tag.getFloat("Boredom");
         curiosity = tag.getFloat("Curiosity");
         lastFact = tag.getString("LastFact");
@@ -840,6 +1171,20 @@ public class BrainPlayerEntity extends PathfinderMob {
         net.minecraft.nbt.ListTag topics = tag.getList("PendingTopics",
                 net.minecraft.nbt.Tag.TAG_STRING);
         for (int i = 0; i < topics.size(); i++) pendingTopics.add(topics.getString(i));
+        // 恢复个体知识账本
+        net.minecraft.nbt.ListTag known2 = tag.getList("KnownTopics",
+                net.minecraft.nbt.Tag.TAG_STRING);
+        for (int i = 0; i < known2.size(); i++) knownTopics.add(known2.getString(i));
+        contributions = tag.getInt("Contributions");
+        teachings = tag.getInt("Teachings");
+        learned = tag.getInt("Learned");
+        // 头顶名不存 NBT，读档后必须重刷，否则名字会变回默认值
+        if (name == null || name.isEmpty()) {
+            // 旧存档没有 Name 字段 —— 补分配一个，别让老 AI 变成"哑巴"
+            assignName();
+        } else {
+            refreshNameTag();
+        }
     }
 
     /** 自定义浮水目标，避免 goal 冲突 */
