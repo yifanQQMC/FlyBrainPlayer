@@ -1132,15 +1132,16 @@ public class BrainPlayerEntity extends PathfinderMob {
     }
 
     /**
-     * 躲避：淋雨/雷暴/离家远时的归巢行为。
-     * 有家园 → 走回家；在家或无家园 → 原地蹲下"找遮蔽"（避雷避雨）。
-     * 这也是"与游戏环境自然交互"的体现：天气变了，AI 真的会动。
+     * 躲避/归巢：淋雨、雷暴、入夜时的"回家"本能。
+     * 有家园且**不在家**（2 格外）→ 朝家走——回家永远是最稳的遮蔽，
+     * 所以夜晚/恶劣天气的本能是"归巢"而非"原地僵立"；
+     * 只有真正到家（2 格内）或无家园（防御性兜底）才原地蹲下缓口气。
      */
     private void doShelter(LivingEntity master) {
-        if (hasHome && home != null && home.distSqr(blockPosition()) > 9) {
+        if (hasHome && home != null && home.distSqr(blockPosition()) > 4) {
             getNavigation().moveTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5, 0.9);
         } else {
-            getNavigation().stop();          // 在家/无家 → 原地躲避
+            getNavigation().stop();          // 到家/无家 → 原地躲避
             energy = Math.min(1f, energy + 0.01f);   // 躲雨也缓口气
         }
     }

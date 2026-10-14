@@ -233,8 +233,8 @@ public class FlyBrain {
         innate(CH_MASTER,OUT_SPRINT,  0.3f);
         innate(CH_ITEM,  OUT_STOP,    0.3f);
         innate(CH_FALLING,OUT_STOP,   0.5f);
-        innate(CH_NIGHT, OUT_SHELTER, 0.6f);   // 日落 → 想回巢/找遮蔽（昼夜节律：昼行夜伏）
-        innate(CH_NIGHT, OUT_REST,    0.5f);   // 夜晚 → 更倾向休息
+        innate(CH_NIGHT, OUT_SHELTER, 0.9f);   // 日落 → 强烈想回巢（昼夜节律：昼行夜伏，夜里优先归巢）
+        innate(CH_NIGHT, OUT_REST,    0.5f);   // 夜晚 → 更倾向休息（到家后歇着）
         innate(CH_NIGHT, OUT_WANDER, -0.3f);   // 夜晚 → 抑制漫游（夜里少乱走）
         innate(CH_LIGHT, OUT_WANDER,  0.2f);   // 白天 → 鼓励活动（与夜晚形成对比）
         innate(CH_NOISE, OUT_WANDER,  0.5f);

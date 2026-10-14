@@ -60,6 +60,17 @@
 
 ---
 
+## [1.0.3] - 2026-10-15
+
+夜晚更倾向「归巢」而非「原地躲避」。
+
+### 修改
+
+- `FlyBrain.installBaseInnate`：`CH_NIGHT → OUT_SHELTER` 由 0.6 提到 0.9，让夜里的回巢本能更明确地压过漫游/其他动作。
+- `BrainPlayerEntity.doShelter`：把「回家」的判定距离从 `distSqr > 9`（3 格）放宽到 `> 4`（2 格），
+  即只要不在家（2 格外）就朝家走，只有真正到家或无家园（防御兜底）才原地蹲下。
+  这样夜晚 / 恶劣天气的本能是「回去躲」而不是「站着不动」，更符合「昼行夜伏、日落归巢」。
+
 ## [1.0.2] - 2026-10-14
 
 昼夜节律（circadian）：让 AI 真正按昼夜调整作息。
@@ -113,3 +124,4 @@
 [1.0.0]: https://github.com/yifanQQMC/FlyBrainPlayer/releases/tag/v1.0.0
 [1.0.1]: https://github.com/yifanQQMC/FlyBrainPlayer/releases/tag/v1.0.1
 [1.0.2]: https://github.com/yifanQQMC/FlyBrainPlayer/releases/tag/v1.0.2
+[1.0.3]: https://github.com/yifanQQMC/FlyBrainPlayer/releases/tag/v1.0.3
