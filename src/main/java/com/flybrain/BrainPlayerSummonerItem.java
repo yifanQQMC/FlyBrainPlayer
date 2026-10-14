@@ -30,8 +30,8 @@ public class BrainPlayerSummonerItem extends Item {
                 bot.setYRot(player.getYRot());
                 bot.master = player;
                 bot.masterId = player.getUUID();
-                bot.setCustomName(Component.literal("果蝇脑 #" + (bot.brain.generation)));
-                bot.setCustomNameVisible(true);
+                // 走与自然生成一致的出生规则（随机头颅 + 个体属性 + 家园）
+                bot.initSpawnTraits();
                 sl.addFreshEntity(bot);
                 player.sendSystemMessage(Component.literal(
                         "§a[果蝇脑] §fAI 玩家已生成！右键它进行认主。"));

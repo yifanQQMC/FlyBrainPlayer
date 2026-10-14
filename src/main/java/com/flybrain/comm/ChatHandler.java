@@ -6,6 +6,11 @@ import com.flybrain.brain.Pretrain;
 import com.flybrain.learn.KnowledgeBase;
 import com.flybrain.learn.WikiClient;
 import com.flybrain.profile.SkullKind;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.MobSpawnType;
+import net.minecraft.world.level.ServerLevelAccessor;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -208,6 +213,16 @@ public class ChatHandler {
                             sb.append(String.format("§7活跃度 §f%d/%d (%.0f%%)\n",
                                     moving, n, moving * 100.0 / n));
 
+                            // 6. 生态环境（自然交互的实时背景）
+                            float dayF = (float) (level.getDayTime() % 24000L) / 24000f;
+                            String phase = dayF > 0.5f ? "夜晚" : "白天";
+                            String weather = level.isThundering() ? "雷暴"
+                                    : level.getRainLevel(1.0f) > 0.05f ? "下雨" : "晴";
+                            long resting = list.stream()
+                                    .filter(b -> b.energy < 0.2f).count();
+                            sb.append(String.format("§7环境 §f%s §8| §7%s §8| §7休息中 §f%d/%d\n",
+                                    phase, weather, resting, n));
+
                             String out = sb.toString();
                             FlyBrainPlayerMod.LOGGER.info("[Watch] {}", out);
                             ctx.getSource().sendSuccess(() ->
@@ -249,6 +264,83 @@ public class ChatHandler {
                             ctx.getSource().sendSuccess(() ->
                                     net.minecraft.network.chat.Component.literal(out), false);
                             return list.size();
+                        }))
+                .then(Commands.literal("spawn")
+                        .then(Commands.argument("count", IntegerArgumentType.integer(1, 64))
+                                .executes(ctx -> {
+                                    var level = ctx.getSource().getLevel();
+                                    var anchor = ctx.getSource().getEntity();
+                                    var origin = anchor != null
+                                            ? anchor.blockPosition()
+                                            : BlockPos.containing(ctx.getSource().getPosition());
+                                    int n = IntegerArgumentType.getInteger(ctx, "count");
+                                    int spawned = 0;
+                                    for (int i = 0; i < n; i++) {
+                                        var bot = FlyBrainPlayerMod.BRAIN_PLAYER.get()
+                                                .create(level);
+                                        if (bot == null) break;
+                                        double ang = Math.random() * Math.PI * 2;
+                                        double rad = 2 + Math.random() * 5;
+                                        bot.setPos(origin.getX() + Math.cos(ang) * rad,
+                                                origin.getY() + 1,
+                                                origin.getZ() + Math.sin(ang) * rad);
+                                        // 与自然生成共用同一套出生规则
+                                        bot.initSpawnTraits();
+                                        level.addFreshEntity(bot);
+                                        spawned++;
+                                    }
+                                    String msg = "§a已生成 " + spawned + " 只 AI 玩家"
+                                            + "（随机头颅 + 个体属性 + 家园）";
+                                    FlyBrainPlayerMod.LOGGER.info("[Brain] {}", msg);
+                                    ctx.getSource().sendSuccess(() ->
+                                            Component.literal(msg), false);
+                                    return spawned;
+                                })))
+                .then(Commands.literal("traits")
+                        .executes(ctx -> {
+                            var level = ctx.getSource().getLevel();
+                            var center = ctx.getSource().getPosition();
+                            var list = level.getEntitiesOfClass(
+                                    BrainPlayerEntity.class,
+                                    new net.minecraft.world.phys.AABB(center, center).inflate(32),
+                                    e -> true);
+                            if (list.isEmpty()) {
+                                ctx.getSource().sendSuccess(() ->
+                                        Component.literal("§c附近 32 格内没有 AI"), false);
+                                return 0;
+                            }
+                            float minLr = 1, maxLr = 0, sumLr = 0;
+                            float minHp = 999, maxHp = 0, sumHp = 0;
+                            float minSpd = 1, maxSpd = 0, sumSpd = 0;
+                            float minAtk = 99, maxAtk = 0, sumAtk = 0;
+                            for (var b : list) {
+                                var pp = b.persona != null ? b.persona : b.skull.personality();
+                                minLr = Math.min(minLr, pp.learningRate());
+                                maxLr = Math.max(maxLr, pp.learningRate());
+                                sumLr += pp.learningRate();
+                                float hp = (float) b.getMaxHealth();
+                                minHp = Math.min(minHp, hp); maxHp = Math.max(maxHp, hp); sumHp += hp;
+                                float spd = (float) b.getAttribute(Attributes.MOVEMENT_SPEED).getBaseValue();
+                                minSpd = Math.min(minSpd, spd); maxSpd = Math.max(maxSpd, spd); sumSpd += spd;
+                                float atk = (float) b.getAttribute(Attributes.ATTACK_DAMAGE).getBaseValue();
+                                minAtk = Math.min(minAtk, atk); maxAtk = Math.max(maxAtk, atk); sumAtk += atk;
+                            }
+                            int n = list.size();
+                            var sb = new StringBuilder("\n§6════ 个体多样性（" + n + " 只）════\n");
+                            sb.append(String.format(
+                                    "§7学习率 §f%.3f~%.3f §8(均 %.3f)\n", minLr, maxLr, sumLr / n));
+                            sb.append(String.format(
+                                    "§7最大生命 §f%.0f~%.0f §8(均 %.0f)\n", minHp, maxHp, sumHp / n));
+                            sb.append(String.format(
+                                    "§7移动速度 §f%.2f~%.2f §8(均 %.2f)\n", minSpd, maxSpd, sumSpd / n));
+                            sb.append(String.format(
+                                    "§7攻击伤害 §f%.1f~%.1f §8(均 %.1f)\n", minAtk, maxAtk, sumAtk / n));
+                            sb.append("§7（属性在头颅基准上做个体扰动，故同头颅也各不相同）\n");
+                            String out = sb.toString();
+                            FlyBrainPlayerMod.LOGGER.info("[Traits] {}", out);
+                            ctx.getSource().sendSuccess(() ->
+                                    net.minecraft.network.chat.Component.literal(out), false);
+                            return n;
                         }))
                 .then(Commands.literal("skulls")
                         .executes(ctx -> {

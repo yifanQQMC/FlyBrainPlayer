@@ -135,6 +135,29 @@ public class BrainPlayerEntity extends PathfinderMob {
     /** 指令目标坐标（探索类指令用） */
     public net.minecraft.core.BlockPos commandTarget = null;
 
+    // ===== 个体属性（自然生成的多样性来源）=====
+    /**
+     * 个体特性种子：决定性格/属性的随机扰动，使同一头颅的 AI 也互不雷同。
+     * 类比真实种群里的个体差异——没有两只完全一样的"末影人玩家"。
+     */
+    public long traitSeed;
+    /** 个体的解析性格（头颅基准 + 个体扰动），覆盖默认头颅性格 */
+    public com.flybrain.profile.SkullKind.Personality persona;
+    /** 体力/能量：行动缓慢消耗、休息恢复，驱动自然作息（不累不歇、累了就歇） */
+    public float energy = 1f;
+    /** 家园坐标：出生时记下，累了/下雨会想回去，形成"领地感" */
+    public net.minecraft.core.BlockPos home;
+    /** 是否有家园（读档/召唤都可能没有） */
+    public boolean hasHome = false;
+    /** 当前 tick 是否处于休息态（tick 里据此恢复能量） */
+    private boolean restingNow = false;
+    /**
+     * 补眠目标：能量跌破触发线后，进入"强制补眠"并一直歇到 energy>=restTarget。
+     * 用滞后控制（hysteresis）避免 AI 在阈值附近反复横跳、永远卡在 0.05~0.2
+     * 被"休息中"统计误伤——要么真补满再活动，要么不补。0 表示不在补眠期。
+     */
+    private float restTarget = 0f;
+
     // ===== 个体知识账本（文明发展的最小单位）=====
     /** 自己亲手学过的词条 */
     public final java.util.LinkedHashSet<String> knownTopics = new java.util.LinkedHashSet<>();
@@ -295,6 +318,26 @@ public class BrainPlayerEntity extends PathfinderMob {
         for (int i = 1; i < FlyBrain.MB_COUNT; i++) if (out[i] > out[best]) best = i;
         lastAction = best;
 
+        // 能量见底 → 进入"强制补眠"并一直歇到恢复（滞后控制，防止假死）：
+        // 若只做"energy<0.05 就歇一下"，AI 会补到 0.07 又去行动、再掉回阈值，
+        // 永远在 0.05~0.2 之间反复横跳、被"休息中"统计误伤成死气沉沉。
+        // 改为：跌破触发线就把 restTarget 设到高位，强制持续休息直到真正补满，
+        // 再回到正常活动——这样精力曲线是"活动很久→补一觉→再活动"，而非长期瘫痪。
+        if (energy < 0.12f) restTarget = 0.85f;
+        if (restTarget > 0f && energy >= restTarget) restTarget = 0f;
+        if (restTarget > 0f) best = FlyBrain.OUT_REST;
+
+        // 能量管理：休息/无操作/补眠不耗，其余动作缓慢消耗。
+        // 消耗刻意调得很慢（满→空约 1~2 分钟），让 AI 大部分时间在活动，
+        // 只有偶尔歇一会儿——否则会"全体同时休息"显得死气沉沉。
+        if (best == FlyBrain.OUT_REST || best == FlyBrain.OUT_STOP
+                || best == FlyBrain.OUT_GREET) {
+            restingNow = (best == FlyBrain.OUT_REST);
+        } else {
+            restingNow = false;
+            energy = Math.max(0f, energy - 0.0006f);
+        }
+
         LivingEntity master = getMaster();
 
         switch (best) {
@@ -356,6 +399,8 @@ public class BrainPlayerEntity extends PathfinderMob {
             }
             case FlyBrain.OUT_STUDY -> doStudy();
             case FlyBrain.OUT_TALK -> doTalk();
+            case FlyBrain.OUT_REST -> doRest();
+            case FlyBrain.OUT_SHELTER -> doShelter(master);
         }
     }
 
@@ -957,9 +1002,13 @@ public class BrainPlayerEntity extends PathfinderMob {
     }
 
     /**
-     * 出生时的初始化：随机头颅 + 随机性格。
+     * 出生时的初始化：随机头颅 + 随机性格 + 家园。
      * 这样满世界自由生成的 AI 天然就是多样化种群，
      * 而不是清一色同一个体。
+     *
+     * 抽成独立方法 {@link #initSpawnTraits}，让自然生成、召唤器、南瓜头扫描仪、
+     * 测试命令共用同一套"出生规则"——否则召唤出来的 AI 会全变成默认 PLAYER
+     * 且没有个体属性，和自然生成的种群不一致。
      */
     @Override
     public net.minecraft.world.entity.SpawnGroupData finalizeSpawn(
@@ -967,12 +1016,26 @@ public class BrainPlayerEntity extends PathfinderMob {
             net.minecraft.world.DifficultyInstance difficulty,
             net.minecraft.world.entity.MobSpawnType reason,
             net.minecraft.world.entity.SpawnGroupData data) {
-        // 随机挑一种头颅（8 种均分概率）
-        com.flybrain.profile.SkullKind[] all = com.flybrain.profile.SkullKind.values();
-        this.skull = all[this.getRandom().nextInt(all.length)];
-        this.applyProfile(this.skull);   // 同步到客户端 + 调大脑性格
-        assignName();                     // 分配随机英文名（ALEX/STEVE/...）
+        initSpawnTraits();
         return super.finalizeSpawn(level, difficulty, reason, data);
+    }
+
+    /**
+     * 出生规则（所有生成路径共用）：加权选头颅 + 个体属性扰动 + 记家园。
+     * 抽出来是因为召唤器 / 南瓜头扫描仪 / 测试命令也是"生成 AI"，
+     * 应当和自然生成走同一套规则，否则种群不一致。
+     */
+    public void initSpawnTraits() {
+        // 随机挑一种头颅（按权重，稀有害羞型更少 —— 形成自然种群构成）
+        this.skull = randomSkull(this.getRandom());
+        this.applyProfile(this.skull);     // 同步到客户端 + 调大脑性格（基准）
+        // 个体特性种子 → 同头颅也各有差异（性格+属性扰动）
+        this.traitSeed = this.getRandom().nextLong();
+        this.rollIndividualTraits();       // 在 applyProfile 之后叠加个体扰动
+        this.assignName();                 // 分配随机英文名（ALEX/STEVE/...）
+        // 记家园：出生地就是它的"窝"
+        this.home = this.blockPosition();
+        this.hasHome = true;
     }
 
     /**
@@ -996,6 +1059,105 @@ public class BrainPlayerEntity extends PathfinderMob {
                 "§b" + name + " §r" + getSkull().color()
                         + getSkull().displayName() + "§r#" + brain.generation));
         setCustomNameVisible(true);
+    }
+
+    /**
+     * 个体属性生成：在头颅基准之上叠加**个体扰动**，让同头颅的 AI 也各有不同。
+     *
+     * 这是"自然生成的 AI 玩家具备多样性"的核心——否则 1000 只僵尸玩家
+     * 会是同一台机器的克隆，看不出种群差异。
+     *
+     * 扰动分两层：
+     *  ① 性格扰动：学习率/好奇/攻击/社交各 ±一小段，仍留在合理区间
+     *  ② 属性扰动：生命/移速/攻击/视野各乘一个 vigor 系数（0.85~1.15）
+     *
+     * 扰动用 traitSeed 驱动，所以读档可精确复现同一只 AI 的"天性"。
+     */
+    private void rollIndividualTraits() {
+        var base = skull.personality();
+        var r = new java.util.Random(traitSeed == 0 ? System.nanoTime() : traitSeed);
+        float lr   = clamp(base.learningRate() * (0.8f + r.nextFloat() * 0.4f), 0.005f, 0.08f);
+        float cur  = clamp(base.curiosity()  + (r.nextFloat() - 0.5f) * 0.30f, 0f, 1f);
+        float aggr = clamp(base.aggression() + (r.nextFloat() - 0.5f) * 0.30f, 0f, 1f);
+        float soc  = clamp(base.sociability()+ (r.nextFloat() - 0.5f) * 0.30f, 0f, 1f);
+        this.persona = new com.flybrain.profile.SkullKind.Personality(lr, cur, aggr, soc);
+
+        // 重放大脑性格（applyProfile 已放过基准，这里换成扰动后的版本）
+        brain.applyPersonality(lr, cur, aggr, soc);
+        for (var skill : skull.skills()) brain.applySkill(skill.name());
+
+        // 属性扰动：让"体格"也五花八门
+        float vigor = 0.85f + r.nextFloat() * 0.30f;          // 0.85~1.15
+        getAttribute(Attributes.MAX_HEALTH).setBaseValue(clamp(20.0f * vigor, 10f, 40f));
+        setHealth(getMaxHealth());
+        getAttribute(Attributes.MOVEMENT_SPEED).setBaseValue(
+                clamp(0.25f * (0.85f + r.nextFloat() * 0.30f), 0.18f, 0.35f));
+        getAttribute(Attributes.ATTACK_DAMAGE).setBaseValue(
+                clamp(2.0f * (0.7f + r.nextFloat() * 0.6f), 1.0f, 5.0f));
+        getAttribute(Attributes.FOLLOW_RANGE).setBaseValue(
+                clamp(32.0f * (0.85f + r.nextFloat() * 0.30f), 16f, 48f));
+        // 初始能量给个随机相位（0.55~1.0），让每只 AI 的"作息"错峰，
+        // 不会出现"全体同时累、同时歇"的假死现象
+        this.energy = 0.55f + r.nextFloat() * 0.45f;
+    }
+
+    /** 读档后重放个体性格（同时修掉"读档丢失头颅性格"的旧 bug） */
+    private void reapplyBrainProfile() {
+        if (persona == null) persona = skull.personality();
+        brain.applyPersonality(persona.learningRate(), persona.curiosity(),
+                persona.aggression(), persona.sociability());
+        for (var skill : skull.skills()) brain.applySkill(skill.name());
+    }
+
+    private static float clamp(float v, float lo, float hi) {
+        return Math.min(hi, Math.max(lo, v));
+    }
+
+    /**
+     * 休息：原地停步、回血般恢复能量。
+     * 能量恢复后 CH_TIRED 下降，大脑自然不再选 REST —— 形成自然作息，
+     * 而不是"脑在思考但身体不动"的假死。
+     */
+    private void doRest() {
+        getNavigation().stop();
+        energy = Math.min(1f, energy + 0.02f);
+        // 休息本身是有回报的（恢复状态）→ 给一点多巴胺，
+        // 让大脑学会"累了就该歇"，而不是被"爱动"的塑性权重带偏、
+        // 永远不选 REST 导致能量归零假死。
+        giveDopamine(0.12f);
+        if (level() instanceof ServerLevel sl && brainRandom().nextFloat() < 0.05f) {
+            sl.sendParticles(ParticleTypes.HAPPY_VILLAGER,
+                    getX(), getY() + 1.2, getZ(), 2, 0.2, 0.2, 0.2, 0.01);
+        }
+    }
+
+    /**
+     * 躲避：淋雨/雷暴/离家远时的归巢行为。
+     * 有家园 → 走回家；在家或无家园 → 原地蹲下"找遮蔽"（避雷避雨）。
+     * 这也是"与游戏环境自然交互"的体现：天气变了，AI 真的会动。
+     */
+    private void doShelter(LivingEntity master) {
+        if (hasHome && home != null && home.distSqr(blockPosition()) > 9) {
+            getNavigation().moveTo(home.getX() + 0.5, home.getY(), home.getZ() + 0.5, 0.9);
+        } else {
+            getNavigation().stop();          // 在家/无家 → 原地躲避
+            energy = Math.min(1f, energy + 0.01f);   // 躲雨也缓口气
+        }
+    }
+
+    /** 加权随机头颅：决定自然生成时的种群构成（稀有害羞型更少） */
+    private static final int[] SPAWN_WEIGHTS = {22, 14, 12, 10, 8, 15, 3, 16};
+    //                                 PLAYER ZOMB SKELE CREE ender PIGLIN WITHER SLIME
+    public static com.flybrain.profile.SkullKind randomSkull(net.minecraft.util.RandomSource r) {
+        var all = com.flybrain.profile.SkullKind.values();
+        int total = 0;
+        for (int w : SPAWN_WEIGHTS) total += w;
+        int pick = r.nextInt(total);
+        for (int i = 0; i < all.length; i++) {
+            pick -= SPAWN_WEIGHTS[i];
+            if (pick < 0) return all[i];
+        }
+        return all[0];
     }
 
     /** 移除时释放名字，避免名字池被死 AI 占着 */
@@ -1105,6 +1267,21 @@ public class BrainPlayerEntity extends PathfinderMob {
                 + " §7| §f知识库 §e" + kb.size() + " §7条"));
         player.sendSystemMessage(Component.literal(
                 "§7最近学到： §f" + (lastFact.isBlank() ? "（还没有）" : lastFact)));
+        // 个体属性（自然生成的多样性）
+        var p = persona != null ? persona : skull.personality();
+        player.sendSystemMessage(Component.literal(String.format(
+                "§7个体性格 §8| §7学率 §f%.3f §7好奇 §f%.2f §7攻击 §f%.2f §7社交 §f%.2f",
+                p.learningRate(), p.curiosity(), p.aggression(), p.sociability())));
+        player.sendSystemMessage(Component.literal(String.format(
+                "§7体格 §8| §7生命 §f%.0f §7移速 §f%.2f §7攻击 §f%.1f §7能量 §f%.0f%%",
+                getMaxHealth(), getAttribute(Attributes.MOVEMENT_SPEED).getBaseValue(),
+                getAttribute(Attributes.ATTACK_DAMAGE).getBaseValue(), energy * 100f)));
+        if (hasHome && home != null) {
+            double d = Math.sqrt(home.distSqr(blockPosition()));
+            player.sendSystemMessage(Component.literal(String.format(
+                    "§7家园 §f(%d,%d,%d) §7距 §f%.0f §7格", home.getX(), home.getY(),
+                    home.getZ(), d)));
+        }
         if (researchTopic != null) {
             player.sendSystemMessage(Component.literal(
                     "§8正在研究： §e" + researchTopic + " §8…"));
@@ -1145,6 +1322,12 @@ public class BrainPlayerEntity extends PathfinderMob {
         net.minecraft.nbt.ListTag topics = new net.minecraft.nbt.ListTag();
         for (String t : pendingTopics) topics.add(net.minecraft.nbt.StringTag.valueOf(t));
         tag.put("PendingTopics", topics);
+        // 个体属性（自然生成多样性）：种子 + 解析性格 + 能量 + 家园
+        tag.putLong("TraitSeed", traitSeed);
+        if (persona != null) tag.put("Persona", persona.toNbt());
+        tag.putFloat("Energy", energy);
+        tag.putBoolean("HasHome", hasHome);
+        if (hasHome && home != null) tag.putLong("Home", home.asLong());
     }
 
     @Override
@@ -1178,6 +1361,19 @@ public class BrainPlayerEntity extends PathfinderMob {
         contributions = tag.getInt("Contributions");
         teachings = tag.getInt("Teachings");
         learned = tag.getInt("Learned");
+        // 恢复个体属性
+        traitSeed = tag.getLong("TraitSeed");
+        persona = tag.contains("Persona")
+                ? com.flybrain.profile.SkullKind.Personality.fromNbt(tag.getCompound("Persona"))
+                : null;
+        // 旧存档没有 Energy 字段 → 默认满能量，否则会永远"极累想歇"
+        energy = tag.contains("Energy") ? tag.getFloat("Energy") : 1f;
+        hasHome = tag.getBoolean("HasHome");
+        home = (hasHome && tag.contains("Home"))
+                ? net.minecraft.core.BlockPos.of(tag.getLong("Home")) : null;
+        // 重放个体性格（修掉旧版"读档后头颅性格丢失"的 bug：
+        // 之前只恢复同步数据、不重放 applyProfile，导致性格加成凭空消失）
+        reapplyBrainProfile();
         // 头顶名不存 NBT，读档后必须重刷，否则名字会变回默认值
         if (name == null || name.isEmpty()) {
             // 旧存档没有 Name 字段 —— 补分配一个，别让老 AI 变成"哑巴"

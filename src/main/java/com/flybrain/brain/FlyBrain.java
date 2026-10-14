@@ -29,7 +29,7 @@ public class FlyBrain {
     public static final int K_WTA = 3;
 
     // ---- 感受器通道（PN 输入强度，0~1）----
-    public static final int PN_COUNT = 24;
+    public static final int PN_COUNT = 28;
     public static final int CH_HUNGER   = 0;   // 饥饿素
     public static final int CH_FOOD     = 1;   // 附近可见食物（掉落物）
     public static final int CH_THREAT   = 2;   // 敌对生物
@@ -55,9 +55,14 @@ public class FlyBrain {
     public static final int CH_NOVELTY   = 21; // 未学过的词条数（越多越想去查）
     public static final int CH_SOCIAL_TALK = 22; // 附近可交谈的对象
     public static final int CH_BOREDOM   = 23; // 无事可做（触发自主学习）
+    // —— 新增：自然环境交互通道 ——
+    public static final int CH_RAIN     = 24; // 露天淋雨（0/1：是否在雨中且无遮蔽）
+    public static final int CH_THUNDER  = 25; // 雷暴（闪电威胁，0/1）
+    public static final int CH_TIRED    = 26; // 疲劳度 = 1 - 能量（1=极累想休息）
+    public static final int CH_HOME     = 27; // 离家距离（0=在家，1=很远）
 
     // ---- MBON 输出通道 ----
-    public static final int MB_COUNT = 14;
+    public static final int MB_COUNT = 16;
     public static final int OUT_FORWARD  = 0;
     public static final int OUT_TURN_L   = 1;
     public static final int OUT_TURN_R   = 2;
@@ -73,6 +78,9 @@ public class FlyBrain {
     // —— 新增：与知识/社交相关的行为 ——
     public static final int OUT_STUDY    = 12;  // 研究：去查 wiki 学新东西
     public static final int OUT_TALK     = 13;  // 交谈：靠近同类或主人搭话
+    // —— 新增：自然作息行为 ——
+    public static final int OUT_REST     = 14;  // 休息：原地停步恢复能量
+    public static final int OUT_SHELTER  = 15;  // 躲避：回家 / 找遮蔽（避雨避雷）
 
     // ---- 连接组矩阵 ----
     /** PN -> KC 随机稀疏投影（果蝇 antennal lobe → mushroom body） */
@@ -241,6 +249,13 @@ public class FlyBrain {
         innate(CH_BOREDOM,     OUT_STUDY, 0.7f);
         innate(CH_SOCIAL_TALK, OUT_TALK,  1.2f);
         innate(CH_SOCIAL_TALK, OUT_GREET, 0.8f);
+
+        // —— 自然环境本能 ——
+        innate(CH_RAIN,    OUT_SHELTER, 0.7f);   // 淋雨 → 想躲
+        innate(CH_THUNDER, OUT_SHELTER, 1.4f);   // 雷暴 → 强烈想躲
+        innate(CH_THUNDER, OUT_BACK,     0.4f);   // 雷暴 → 同时想后退
+        innate(CH_TIRED,    OUT_REST,    1.8f);   // 累了 → 休息（加强，避免被"爱动"的塑性权重压过）
+        innate(CH_HOME,     OUT_SHELTER, 0.25f);  // 离家远 → 想回去（轻微归巢）
     }
 
     private void innate(int pn, int mbon, float w) {
@@ -297,6 +312,16 @@ public class FlyBrain {
         float soc = Math.max(0f, sociability);
         boost(CH_SOCIAL_TALK, OUT_TALK, 0.2f + soc * 1.6f);
         boost(CH_SOCIAL_TALK, OUT_GREET, 0.2f + soc * 1.0f);
+
+        // —— 自然作息调制 ——
+        // 疲劳→休息：好奇型忍耐力强（不爱歇），迟钝型更容易瘫
+        boost(CH_TIRED, OUT_REST, 0.4f + (1f - cur) * 0.6f);
+        // 淋雨→躲避：胆小的（攻击性低）更积极找遮蔽
+        boost(CH_RAIN, OUT_SHELTER, 0.3f + (1f - aggr) * 0.4f);
+        // 雷暴→躲避：全员都怕，但勇敢型稍能扛
+        boost(CH_THUNDER, OUT_SHELTER, 1.0f + (1f - aggr) * 0.5f);
+        // 归巢：恋家型（社交高）更想回家
+        boost(CH_HOME, OUT_SHELTER, 0.2f + soc * 0.3f);
 
         // 学习率直接由性格决定（学者型 0.055，凋灵型 0.008）
         // 参数名与字段同名，必须用 this 消歧，否则是自赋值

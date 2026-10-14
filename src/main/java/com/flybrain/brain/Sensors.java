@@ -166,6 +166,29 @@ public final class Sensors {
         self.boredom = Mth.clamp(self.boredom + (busy < 0.2f ? 0.01f : -0.05f), 0, 1);
         pn[FlyBrain.CH_BOREDOM] = self.boredom;
 
+        // ===== 自然环境交互通道 =====
+
+        // CH_RAIN：露天淋雨。只有"头顶见得到天 + 正在下雨"才算，
+        // 站在树下/屋檐下不算淋雨 —— 让 AI 真的会去找遮蔽而不是无意义发抖。
+        float rainLevel = level.getRainLevel(1.0f);
+        boolean raining = rainLevel > 0.05f;
+        boolean exposedToSky = level.canSeeSky(feet);
+        pn[FlyBrain.CH_RAIN] = (raining && exposedToSky) ? 1f : 0f;
+
+        // CH_THUNDER：雷暴（闪电威胁）
+        pn[FlyBrain.CH_THUNDER] = level.isThundering() ? 1f : 0f;
+
+        // CH_TIRED：疲劳度 = 1 - 能量。能量由实体维护，休息时回升。
+        pn[FlyBrain.CH_TIRED] = 1f - Mth.clamp(self.energy, 0f, 1f);
+
+        // CH_HOME：离家距离（归一化）。没家 → 0（不归巢）。
+        if (self.hasHome && self.home != null) {
+            double d = Math.sqrt(self.home.distSqr(self.blockPosition()));
+            pn[FlyBrain.CH_HOME] = Mth.clamp((float) (d / 48.0), 0f, 1f);
+        } else {
+            pn[FlyBrain.CH_HOME] = 0f;
+        }
+
         return pn;
     }
 

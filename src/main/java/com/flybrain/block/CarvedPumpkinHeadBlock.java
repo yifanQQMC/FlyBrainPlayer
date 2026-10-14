@@ -42,8 +42,8 @@ public class CarvedPumpkinHeadBlock extends Block {
                 bot.setPos(pos.getX() + 0.5, pos.getY() - 1.0, pos.getZ() + 0.5);
                 bot.master = player;
                 bot.masterId = player.getUUID();
-                bot.setCustomName(Component.literal("果蝇脑 #" + bot.brain.generation));
-                bot.setCustomNameVisible(true);
+                // 走与自然生成一致的出生规则（随机头颅 + 个体属性 + 家园）
+                bot.initSpawnTraits();
                 sl.addFreshEntity(bot);
 
                 // 消耗组件
