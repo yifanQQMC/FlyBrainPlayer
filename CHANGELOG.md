@@ -60,6 +60,19 @@
 
 ---
 
+## [1.0.2] - 2026-10-14
+
+昼夜节律（circadian）：让 AI 真正按昼夜调整作息。
+
+### 修改
+
+- 重写 `CH_NIGHT` 先天接线：原 `CH_NIGHT → OUT_SPRINT`（夜晚冲刺）不符合自然节律，改为
+  `CH_NIGHT → OUT_SHELTER 0.6` + `OUT_REST 0.5` + `OUT_WANDER -0.3`，并加 `CH_LIGHT → OUT_WANDER 0.2`
+  （白天鼓励活动）。白天主导动作翻转为 WANDER，夜晚翻转为 SHELTER。
+- 性格调制新增昼夜项：恋家 / 冷静型夜里回巢歇着最强烈（`boost(CH_NIGHT, OUT_SHELTER, 0.3+soc*0.3)`、
+  `boost(CH_NIGHT, OUT_REST, 0.2+(1-aggr)*0.3)`），暴躁型不那么怕黑、照样在外。
+- 离线 `FlyBrain.step()` 验证：同一套大脑，白天主导 WANDER（SHELTER≈0.05），夜晚主导 SHELTER（≈1.0，REST≈0.7，WANDER=0）。
+
 ## [1.0.1] - 2026-10-12
 
 自然生成的 AI 玩家：个体多样 + 与游戏环境的自然交互。
@@ -99,3 +112,4 @@
 
 [1.0.0]: https://github.com/yifanQQMC/FlyBrainPlayer/releases/tag/v1.0.0
 [1.0.1]: https://github.com/yifanQQMC/FlyBrainPlayer/releases/tag/v1.0.1
+[1.0.2]: https://github.com/yifanQQMC/FlyBrainPlayer/releases/tag/v1.0.2

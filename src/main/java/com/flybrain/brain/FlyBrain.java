@@ -233,7 +233,10 @@ public class FlyBrain {
         innate(CH_MASTER,OUT_SPRINT,  0.3f);
         innate(CH_ITEM,  OUT_STOP,    0.3f);
         innate(CH_FALLING,OUT_STOP,   0.5f);
-        innate(CH_NIGHT, OUT_SPRINT,  0.3f);
+        innate(CH_NIGHT, OUT_SHELTER, 0.6f);   // 日落 → 想回巢/找遮蔽（昼夜节律：昼行夜伏）
+        innate(CH_NIGHT, OUT_REST,    0.5f);   // 夜晚 → 更倾向休息
+        innate(CH_NIGHT, OUT_WANDER, -0.3f);   // 夜晚 → 抑制漫游（夜里少乱走）
+        innate(CH_LIGHT, OUT_WANDER,  0.2f);   // 白天 → 鼓励活动（与夜晚形成对比）
         innate(CH_NOISE, OUT_WANDER,  0.5f);
         innate(CH_NOISE, OUT_FORWARD, 0.7f);
         innate(CH_SPEED, OUT_SPRINT,  0.3f);
@@ -322,6 +325,11 @@ public class FlyBrain {
         boost(CH_THUNDER, OUT_SHELTER, 1.0f + (1f - aggr) * 0.5f);
         // 归巢：恋家型（社交高）更想回家
         boost(CH_HOME, OUT_SHELTER, 0.2f + soc * 0.3f);
+
+        // 昼夜作息（ circadian ）：恋家/冷静型夜里强烈回巢歇着，
+        // 暴躁型不怎么怕黑、照样在外活动——同一套网络、不同头颅表现出昼夜差异
+        boost(CH_NIGHT, OUT_SHELTER, 0.3f + soc * 0.3f);
+        boost(CH_NIGHT, OUT_REST,    0.2f + (1f - aggr) * 0.3f);
 
         // 学习率直接由性格决定（学者型 0.055，凋灵型 0.008）
         // 参数名与字段同名，必须用 this 消歧，否则是自赋值
